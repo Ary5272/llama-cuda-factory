@@ -106,7 +106,7 @@ jobs:
           uv python install ${{ matrix.python }}
           uv venv --python ${{ matrix.python }} /opt/venv
           . /opt/venv/bin/activate
-          uv pip install "cmake>=3.28" ninja build wheel auditwheel scikit-build-core
+          uv pip install "cmake>=3.28" ninja build wheel auditwheel scikit-build-core patchelf
 
       - name: Fetch ${{ matrix.llama }}
         run: |
