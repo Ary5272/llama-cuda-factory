@@ -1,0 +1,8 @@
+{
+  "dataset": "AIencoder/llama-cpp-wheels",
+  "llama_versions": ["v0.3.16", "v0.3.17", "v0.3.18", "v0.3.19"],
+  "cuda_versions": ["12.4.1", "12.6.3", "12.8.1", "12.9.1"],
+  "cpu_variants": ["basic", "avx2_fma_f16c", "avx512_fma_f16c"],
+  "python_versions": ["3.11", "3.12", "3.13", "3.14"],
+  "batch_size": 20
+}
