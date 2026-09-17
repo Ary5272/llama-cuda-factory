@@ -1,0 +1,195 @@
+name: Factory
+
+# Plans the queue and grinds through it on a schedule. Replaces build-cuda-wheels.yml —
+# delete that one.
+#
+# plan  -> works out every wheel in config.json's range, subtracts what's already in the
+#          dataset, writes QUEUE.md, hands the next batch to the build matrix
+# build -> builds that batch in parallel inside nvidia/cuda:*-devel-ubuntu20.04
+#
+# No GPU involved. nvcc cross-compiles; CMAKE_CUDA_ARCHITECTURES is explicit because
+# autodetect queries a physical card.
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"      # every six hours
+  workflow_dispatch:
+    inputs:
+      batch_size:
+        description: "Wheels to build this run (max 20 run in parallel on Free)"
+        default: "20"
+      dry_run:
+        description: "Plan only — don't build anything"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write               # so the queue board can be committed
+
+concurrency:
+  group: factory
+  cancel-in-progress: false     # never kill a build half-done
+
+jobs:
+  # ---------------------------------------------------------------- plan
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      count: ${{ steps.plan.outputs.count }}
+      remaining: ${{ steps.plan.outputs.remaining }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install "huggingface_hub>=0.28"
+
+      - name: Work out what's missing
+        id: plan
+        env:
+          BATCH: ${{ github.event.inputs.batch_size || '20' }}
+        run: |
+          python - <<'PY'
+          import json, os
+          cfg = json.load(open("config.json"))
+          cfg["batch_size"] = int(os.environ["BATCH"])
+          json.dump(cfg, open("config.json", "w"), indent=2)
+          PY
+          python plan.py
+
+      - name: Publish the board
+        run: |
+          git config user.name  "factory[bot]"
+          git config user.email "factory@users.noreply.github.com"
+          git add QUEUE.md queue.json config.json
+          git diff --staged --quiet || git commit -m "queue: ${{ steps.plan.outputs.remaining }} remaining [skip ci]"
+          git push
+
+      - name: Summary
+        run: |
+          echo "### Factory queue" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Dispatching **${{ steps.plan.outputs.count }}**, **${{ steps.plan.outputs.remaining }}** left after this." >> $GITHUB_STEP_SUMMARY
+
+  # --------------------------------------------------------------- build
+  build:
+    needs: plan
+    if: needs.plan.outputs.count != '0' && github.event.inputs.dry_run != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    container:
+      image: nvidia/cuda:${{ matrix.cuda }}-devel-ubuntu20.04
+
+    strategy:
+      fail-fast: false          # a bad combination must not stop the rest
+      max-parallel: 20          # the Free plan ceiling
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+
+    steps:
+      - name: Build tooling
+        run: |
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential git curl ca-certificates patchelf xz-utils
+          rm -rf /var/lib/apt/lists/*
+          nvcc --version
+          echo "glibc: $(ldd --version | head -1)"
+
+      - name: Python ${{ matrix.python }}
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          export PATH="$HOME/.local/bin:$PATH"
+          uv python install ${{ matrix.python }}
+          uv venv --python ${{ matrix.python }} /opt/venv
+          . /opt/venv/bin/activate
+          uv pip install "cmake>=3.28" ninja build wheel auditwheel scikit-build-core
+
+      - name: Fetch ${{ matrix.llama }}
+        run: |
+          git clone --depth 1 --recursive --shallow-submodules \
+            --branch "${{ matrix.llama }}" \
+            https://github.com/abetlen/llama-cpp-python.git /src
+          test -d /src/vendor/llama.cpp || { echo "submodule missing"; exit 1; }
+
+      - name: Stamp local version
+        run: |
+          CU=$(echo "${{ matrix.cuda }}" | cut -d. -f1,2 | tr -d .)
+          LOCAL="cu${CU}_${{ matrix.cpu }}"
+          F=/src/llama_cpp/__init__.py
+          CUR=$(grep -oP '__version__\s*=\s*"\K[^"]+' "$F")
+          sed -i "s/__version__ = \"$CUR\"/__version__ = \"$CUR+$LOCAL\"/" "$F"
+          echo "building $CUR+$LOCAL for ${{ matrix.python }}"
+
+      - name: Compile
+        env:
+          # 60 included so Kaggle's P100 can run these; 89 tops out at Ada.
+          CUDA_ARCHS: "60;61;70;75;80;86;89"
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          . /opt/venv/bin/activate
+          case "${{ matrix.cpu }}" in
+            basic)           CPU="-DGGML_AVX=OFF -DGGML_AVX2=OFF -DGGML_FMA=OFF -DGGML_F16C=OFF" ;;
+            avx2_fma_f16c)   CPU="-DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON" ;;
+            avx512_fma_f16c) CPU="-DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_AVX512=ON -DGGML_FMA=ON -DGGML_F16C=ON" ;;
+            *) echo "unknown cpu variant ${{ matrix.cpu }}"; exit 1 ;;
+          esac
+          export CMAKE_ARGS="-DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=${CUDA_ARCHS} -DCMAKE_BUILD_TYPE=Release $CPU"
+          export CMAKE_BUILD_PARALLEL_LEVEL=$(nproc)
+          echo "CMAKE_ARGS=$CMAKE_ARGS"
+          cd /src && python -m build --wheel --outdir /out
+
+      - name: Repair to manylinux_2_31
+        run: |
+          . /opt/venv/bin/activate
+          # CUDA libraries stay out of the wheel: bundling cuBLAS is what makes
+          # upstream's Windows wheels 428 MB. Users supply their own runtime.
+          auditwheel repair /out/*.whl \
+            --plat manylinux_2_31_x86_64 \
+            --exclude libcuda.so.1 \
+            --exclude libcudart.so.12 \
+            --exclude libcublas.so.12 \
+            --exclude libcublasLt.so.12 \
+            -w /repaired
+          ls -lh /repaired
+
+      - name: Check the name came out right
+        run: |
+          BUILT=$(basename /repaired/*.whl)
+          echo "built:    $BUILT"
+          echo "expected: ${{ matrix.name }}"
+          [ "$BUILT" = "${{ matrix.name }}" ] || {
+            echo "::error::filename mismatch — the planner will re-queue this forever until it matches"
+            exit 1
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: /repaired/*.whl
+          if-no-files-found: error
+
+      - name: Upload to the dataset
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          . /opt/venv/bin/activate
+          export PATH="$HOME/.local/bin:$PATH"
+          uv pip install "huggingface_hub>=0.28"
+          python - <<'PY'
+          import os, glob
+          from huggingface_hub import HfApi
+          token = os.environ.get("HF_TOKEN")
+          if not token:
+              raise SystemExit("HF_TOKEN secret is not set")
+          api = HfApi(token=token)
+          for path in glob.glob("/repaired/*.whl"):
+              name = os.path.basename(path)
+              api.upload_file(path_or_fileobj=path, path_in_repo=name,
+                              repo_id="AIencoder/llama-cpp-wheels", repo_type="dataset",
+                              commit_message=f"CUDA wheel: {name}")
+              print("uploaded", name)
+          PY
