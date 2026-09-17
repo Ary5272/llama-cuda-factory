@@ -1,4 +1,5 @@
 {
+  "enabled": true,
   "dataset": "AIencoder/llama-cpp-wheels",
   "llama_versions": [
     "v0.3.16",
