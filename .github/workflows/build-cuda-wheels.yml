@@ -1,0 +1,160 @@
+name: Build CUDA wheels
+
+# The GPU edition of the wheel factory.
+#
+# Runs inside nvidia/cuda:*-devel-ubuntu20.04, which gives us:
+#   - nvcc (the `devel` tag; `runtime` has no compiler)
+#   - glibc 2.31, so wheels tag manylinux_2_31_x86_64 like the existing 4,382
+# No GPU is involved anywhere. nvcc cross-compiles device code; CMAKE_CUDA_ARCHITECTURES
+# is passed explicitly because cmake's autodetect queries a physical card and fails without one.
+#
+# Free on public repos: standard runners are unmetered there. Keep this repo public.
+
+on:
+  workflow_dispatch:
+    inputs:
+      llama_version:
+        description: "llama-cpp-python version (git tag, e.g. v0.3.19)"
+        required: true
+        default: "v0.3.19"
+      cuda:
+        description: "CUDA toolkit version"
+        required: true
+        default: "12.4.1"
+        type: choice
+        options: ["12.4.1", "12.6.3", "12.8.1", "12.9.1"]
+      cpu_flags:
+        description: "CPU baseline for the CUDA build"
+        required: true
+        default: "avx2_fma_f16c"
+        type: choice
+        options: ["basic", "avx2_fma_f16c", "avx512_fma_f16c"]
+      upload:
+        description: "Push to AIencoder/llama-cpp-wheels when done"
+        type: boolean
+        default: true
+
+concurrency:
+  group: cuda-${{ github.event.inputs.llama_version }}-${{ github.event.inputs.cuda }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350          # job ceiling is 360
+    container:
+      image: nvidia/cuda:${{ github.event.inputs.cuda }}-devel-ubuntu20.04
+
+    strategy:
+      fail-fast: false            # one bad Python shouldn't kill the others
+      matrix:
+        python: ["3.11", "3.12", "3.13", "3.14"]
+
+    steps:
+      - name: Install build tooling
+        run: |
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential git curl ca-certificates patchelf xz-utils
+          rm -rf /var/lib/apt/lists/*
+          nvcc --version
+          echo "glibc: $(ldd --version | head -1)"
+
+      - name: Install uv and Python ${{ matrix.python }}
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Set up Python and build deps
+        run: |
+          uv python install ${{ matrix.python }}
+          uv venv --python ${{ matrix.python }} /opt/venv
+          . /opt/venv/bin/activate
+          # Ubuntu 20.04's cmake is 3.16; llama.cpp's CUDA path wants newer.
+          uv pip install "cmake>=3.28" ninja build wheel auditwheel scikit-build-core
+
+      - name: Fetch llama-cpp-python ${{ github.event.inputs.llama_version }}
+        run: |
+          git clone --depth 1 --recursive --shallow-submodules \
+            --branch "${{ github.event.inputs.llama_version }}" \
+            https://github.com/abetlen/llama-cpp-python.git /src
+          test -d /src/vendor/llama.cpp || { echo "submodule missing"; exit 1; }
+
+      - name: Stamp the local version tag
+        id: stamp
+        run: |
+          CUDA_TAG="cu$(echo '${{ github.event.inputs.cuda }}' | cut -d. -f1,2 | tr -d .)"
+          LOCAL="${CUDA_TAG}_${{ github.event.inputs.cpu_flags }}"
+          echo "local=$LOCAL" >> $GITHUB_OUTPUT
+          # Same trick the CPU factory used: append the PEP 440 local version to the
+          # package version so it lands in the wheel filename.
+          VER_FILE=/src/llama_cpp/__init__.py
+          CURRENT=$(grep -oP '__version__\s*=\s*"\K[^"]+' "$VER_FILE")
+          sed -i "s/__version__ = \"$CURRENT\"/__version__ = \"$CURRENT+$LOCAL\"/" "$VER_FILE"
+          echo "version: $CURRENT+$LOCAL"
+
+      - name: Build the wheel
+        env:
+          # Pascal -> Ada. Explicit: autodetect needs a real GPU and there isn't one.
+          CUDA_ARCHS: "61;70;75;80;86;89"
+        run: |
+          . /opt/venv/bin/activate
+          case "${{ github.event.inputs.cpu_flags }}" in
+            basic)             CPU="-DGGML_AVX=OFF -DGGML_AVX2=OFF -DGGML_FMA=OFF -DGGML_F16C=OFF" ;;
+            avx2_fma_f16c)     CPU="-DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON" ;;
+            avx512_fma_f16c)   CPU="-DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_AVX512=ON -DGGML_FMA=ON -DGGML_F16C=ON" ;;
+          esac
+          export CMAKE_ARGS="-DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=${CUDA_ARCHS} -DCMAKE_BUILD_TYPE=Release $CPU"
+          export CMAKE_BUILD_PARALLEL_LEVEL=$(nproc)
+          echo "CMAKE_ARGS=$CMAKE_ARGS"
+          cd /src
+          python -m build --wheel --outdir /out
+
+      - name: Repair to manylinux_2_31
+        run: |
+          . /opt/venv/bin/activate
+          # Leave the CUDA libraries out of the wheel. Bundling cuBLAS is what makes
+          # upstream's Windows wheels 428 MB; excluded, this stays a few MB and the
+          # user's own CUDA runtime is used instead.
+          auditwheel repair /out/*.whl \
+            --plat manylinux_2_31_x86_64 \
+            --exclude libcuda.so.1 \
+            --exclude libcudart.so.12 \
+            --exclude libcublas.so.12 \
+            --exclude libcublasLt.so.12 \
+            -w /repaired
+          ls -lh /repaired
+
+      - name: Upload as a workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ steps.stamp.outputs.local }}-py${{ matrix.python }}
+          path: /repaired/*.whl
+          if-no-files-found: error
+
+      - name: Push to the Hugging Face dataset
+        if: ${{ github.event.inputs.upload == 'true' }}
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          . /opt/venv/bin/activate
+          uv pip install "huggingface_hub>=0.28"
+          python - <<'PY'
+          import os, glob
+          from huggingface_hub import HfApi
+          token = os.environ.get("HF_TOKEN")
+          if not token:
+              raise SystemExit("HF_TOKEN secret is not set — add it in repo Settings > Secrets")
+          api = HfApi(token=token)
+          for path in glob.glob("/repaired/*.whl"):
+              name = os.path.basename(path)
+              api.upload_file(
+                  path_or_fileobj=path,
+                  path_in_repo=name,
+                  repo_id="AIencoder/llama-cpp-wheels",
+                  repo_type="dataset",
+                  commit_message=f"CUDA wheel: {name}",
+              )
+              print("uploaded", name)
+          PY
