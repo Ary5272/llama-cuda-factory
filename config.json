@@ -2,10 +2,50 @@
   "enabled": true,
   "dataset": "AIencoder/llama-cpp-wheels",
   "llama_versions": [
-    "v0.3.16",
-    "v0.3.17",
+    "v0.3.19",
     "v0.3.18",
-    "v0.3.19"
+    "v0.3.17",
+    "v0.3.16"
+  ],
+  "python_versions": [
+    "3.8",
+    "3.9",
+    "3.10",
+    "3.11",
+    "3.12",
+    "3.13",
+    "3.14"
+  ],
+  "cpu_variants": [
+    "basic",
+    "basic_avx",
+    "basic_avx2_fma_f16c",
+    "basic_avx2_fma_f16c_avxvnni",
+    "basic_avx512_fma_f16c",
+    "basic_avx512_fma_f16c_vnni_vbmi",
+    "basic_avx512_fma_f16c_vnni_vbmi_bf16_amx",
+    "basic_avx_f16c",
+    "clblast",
+    "mkl_avx",
+    "mkl_avx2_fma_f16c",
+    "mkl_avx2_fma_f16c_avxvnni",
+    "mkl_avx512_fma_f16c",
+    "mkl_avx512_fma_f16c_vnni_vbmi",
+    "mkl_avx512_fma_f16c_vnni_vbmi_bf16_amx",
+    "mkl_avx_f16c",
+    "mkl_basic",
+    "openblas_avx",
+    "openblas_avx2_fma_f16c",
+    "openblas_avx2_fma_f16c_avxvnni",
+    "openblas_avx512_fma_f16c",
+    "openblas_avx512_fma_f16c_vnni_vbmi",
+    "openblas_avx512_fma_f16c_vnni_vbmi_bf16_amx",
+    "openblas_avx_f16c",
+    "openblas_basic",
+    "opencl",
+    "rpc",
+    "sycl",
+    "vulkan"
   ],
   "cuda_versions": [
     "12.4.1",
@@ -13,16 +53,10 @@
     "12.8.1",
     "12.9.1"
   ],
-  "cpu_variants": [
+  "cuda_cpu_baselines": [
     "basic",
     "avx2_fma_f16c",
     "avx512_fma_f16c"
-  ],
-  "python_versions": [
-    "3.11",
-    "3.12",
-    "3.13",
-    "3.14"
   ],
   "batch_size": 20
 }
