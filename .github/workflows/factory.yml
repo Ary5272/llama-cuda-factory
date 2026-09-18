@@ -207,9 +207,24 @@ jobs:
         run: |
           export PATH="$HOME/.local/bin:$PATH"
           . /opt/venv/bin/activate
-          # CUDA libraries stay out: bundling cuBLAS is what makes upstream's Windows
+          # llama.cpp's own libraries (libmtmd, libllama, libggml...) are bundled INSIDE the
+          # wheel under llama_cpp/lib/. auditwheel inspects the compiled extension, sees it
+          # depends on those, and can't resolve them unless that directory is on the library
+          # search path — otherwise it dies with 'libmtmd.so could not be located'. Unpack
+          # the wheel, find the bundled lib dir, and put it on LD_LIBRARY_PATH before repair.
+          # This is exactly how upstream's own release workflow does it.
+          WHEEL=$(ls /out/*.whl)
+          python -m wheel unpack "$WHEEL" -d /tmp/unpacked
+          LIBDIR=$(dirname "$(find /tmp/unpacked -name 'libllama.so' | head -1)")
+          if [ -z "$LIBDIR" ] || [ "$LIBDIR" = "." ]; then
+            echo "::error::couldn't find llama.cpp libs inside the wheel"
+            find /tmp/unpacked -name '*.so' || true
+            exit 1
+          fi
+          echo "wheel lib dir: $LIBDIR"
+          # CUDA libraries stay excluded — bundling cuBLAS is what makes upstream's Windows
           # wheels 428 MB. The installing machine supplies its own runtime.
-          auditwheel repair /out/*.whl \
+          LD_LIBRARY_PATH="$LIBDIR:$LD_LIBRARY_PATH" auditwheel repair "$WHEEL" \
             --plat manylinux_2_31_x86_64 \
             --exclude libcuda.so.1 \
             --exclude libcudart.so.12 \
