@@ -1,15 +1,20 @@
 name: Factory
 
-# llama-cpp-python wheel factory. Builds both CPU and CUDA wheels on free GitHub runners
-# and pushes them to AIencoder/llama-cpp-wheels.
+# llama-cpp-python wheel factory -> AIencoder/llama-cpp-wheels.
 #
-#   CPU wheels  -> plain manylinux image, backend flags from the variant name
-#   CUDA wheels -> nvidia/cuda:*-devel-ubuntu20.04, self-contained, all architectures
+#   CPU wheels  -> quay.io/pypa/manylinux_2_28_x86_64 (AlmaLinux 8: gcc 14 + binutils 2.40,
+#                  glibc 2.28). Modern toolchain assembles every instruction (AVX-VNNI,
+#                  AVX-512 VBMI/BF16, AMX); glibc 2.28 < 2.31 so wheels tag cleanly and stay
+#                  compatible. This is the image upstream uses. Package manager is dnf.
+#   CUDA wheels -> nvidia/cuda:*-devel-ubuntu20.04, self-contained, all architectures (apt).
 #
-# No GPU is used; nvcc cross-compiles. Both tag manylinux_2_31_x86_64 (glibc 2.31).
+# No GPU is used; nvcc cross-compiles. Both tag manylinux_2_31_x86_64.
 #
-# EMERGENCY STOP: set "enabled": false in config.json. To kill a run already going, use
-# the Cancel workflow button — nothing is lost, the queue is derived from the dataset.
+# FAILURE LOGGING: any job that fails writes the tail of its build log to
+# failures/<wheel>.txt and commits it, so errors can be read straight from the repo.
+#
+# EMERGENCY STOP: set "enabled": false in config.json. To kill a running run, use the
+# Cancel workflow button — nothing is lost, the queue is derived from the dataset.
 
 on:
   schedule:
@@ -49,7 +54,7 @@ jobs:
           EN=$(python3 -c "import json; print(str(json.load(open('config.json')).get('enabled', True)).lower())")
           echo "enabled=$EN" >> $GITHUB_OUTPUT
           if [ "$EN" != "true" ]; then
-            echo "::warning::Factory is disabled in config.json — planning and building skipped."
+            echo "::warning::Factory disabled in config.json — planning and building skipped."
             printf '# Factory queue\n\n**STOPPED** — `enabled` is false in config.json.\n' > QUEUE.md
           fi
 
@@ -106,10 +111,9 @@ jobs:
       github.event.inputs.dry_run != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 350
-    # CUDA wheels build inside the CUDA devel image; CPU wheels in a plain manylinux-era
-    # Ubuntu. The matrix carries an empty "cuda" for CPU jobs, so pick the image per-row.
+    # CPU -> manylinux_2_28 (modern toolchain, dnf). CUDA -> CUDA devel image (apt).
     container:
-      image: ${{ matrix.kind == 'cuda' && format('nvidia/cuda:{0}-devel-ubuntu20.04', matrix.cuda) || 'ubuntu:20.04' }}
+      image: ${{ matrix.kind == 'cuda' && format('nvidia/cuda:{0}-devel-ubuntu20.04', matrix.cuda) || 'quay.io/pypa/manylinux_2_28_x86_64:latest' }}
 
     strategy:
       fail-fast: false
@@ -117,68 +121,59 @@ jobs:
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
 
     steps:
-      - name: Check out the repo (for fix_wheel_name.py)
+      - name: Check out the repo (for fix_wheel_name.py + failure logging)
         uses: actions/checkout@v4
 
-      - name: Build tooling
+      # ---- tooling: two package managers, chosen by image ----
+      - name: Build tooling (CUDA image, apt)
+        if: matrix.kind == 'cuda'
         run: |
           export DEBIAN_FRONTEND=noninteractive
           apt-get update
           apt-get install -y --no-install-recommends \
             build-essential git curl ca-certificates xz-utils
-          # CPU builds need GCC 11+: focal ships GCC 9, which doesn't know the newest
-          # instruction flags (-mavxvnni, AVX-512 VBMI/BF16, AMX). Without it the 9
-          # variants using those instructions fail to compile. CUDA builds use the CUDA
-          # image's own host compiler and don't need this.
-          if [ "${{ matrix.kind }}" = "cpu" ]; then
-            apt-get install -y --no-install-recommends software-properties-common
-            add-apt-repository -y ppa:ubuntu-toolchain-r/test || true
-            apt-get update
-            apt-get install -y --no-install-recommends gcc-11 g++-11 || \
-              apt-get install -y --no-install-recommends gcc-10 g++-10 || true
-          fi
           rm -rf /var/lib/apt/lists/*
           echo "glibc: $(ldd --version | head -1)"
-          if [ "${{ matrix.kind }}" = "cuda" ]; then nvcc --version; fi
+          nvcc --version
 
-      # OpenBLAS / MKL / etc. need their dev libraries present at build time. Only install
-      # what a CPU variant actually needs; CUDA and baseline variants skip this.
-      - name: Backend libraries (CPU variants)
+      - name: Build tooling (manylinux image, dnf)
         if: matrix.kind == 'cpu'
         run: |
-          export DEBIAN_FRONTEND=noninteractive
-          case "${{ matrix.variant }}" in
-            openblas*) apt-get update && apt-get install -y --no-install-recommends libopenblas-dev ;;
-            mkl*)      apt-get update && apt-get install -y --no-install-recommends intel-mkl || echo "::warning::intel-mkl unavailable, build may fall back" ;;
-            vulkan*)   apt-get update && apt-get install -y --no-install-recommends libvulkan-dev glslang-tools ;;
-            clblast*)  apt-get update && apt-get install -y --no-install-recommends libclblast-dev ;;
-            opencl*)   apt-get update && apt-get install -y --no-install-recommends ocl-icd-opencl-dev ;;
-          esac
-          rm -rf /var/lib/apt/lists/*
+          # gcc 14 + binutils 2.40 are already on PATH in manylinux_2_28. git/curl present.
+          gcc --version | head -1
+          echo "assembler: $(as --version | head -1)"
+          echo "glibc: $(ldd --version | head -1)"
 
-      # CUDA only: FindCUDAToolkit resolves CUDA::cuda_driver via libcuda.so, which a
-      # container lacks (only the stub is present). Point cmake straight at the stub.
+      # Backend dev libraries. CUDA/basic variants need none. Package names differ per distro.
+      - name: Backend libraries (CPU variants, dnf)
+        if: matrix.kind == 'cpu'
+        run: |
+          case "${{ matrix.variant }}" in
+            openblas*) dnf install -y openblas-devel || echo "::warning::openblas-devel install failed" ;;
+            vulkan*)   dnf install -y vulkan-loader-devel vulkan-headers glslang || echo "::warning::vulkan deps failed" ;;
+            opencl*)   dnf install -y ocl-icd-devel opencl-headers || echo "::warning::opencl deps failed" ;;
+            clblast*)  dnf install -y epel-release && dnf install -y clblast-devel || echo "::warning::clblast unavailable, build may fail" ;;
+            mkl*)      echo "MKL: relying on llama.cpp's own BLAS fallback if Intel repo absent" ;;
+          esac
+
+      # CUDA only: point cmake at the driver stub (container has no real libcuda.so).
       - name: Locate the CUDA driver library
         if: matrix.kind == 'cuda'
         run: |
           DRIVER=$(find /usr/local/cuda* -name 'libcuda.so' 2>/dev/null | head -1)
-          if [ -z "$DRIVER" ]; then
-            DRIVER=$(find /usr/local/cuda* -name 'libcuda.so*' 2>/dev/null | head -1)
-          fi
-          if [ -z "$DRIVER" ]; then
-            echo "::error::no libcuda.so under /usr/local/cuda*"; exit 1
-          fi
+          if [ -z "$DRIVER" ]; then DRIVER=$(find /usr/local/cuda* -name 'libcuda.so*' 2>/dev/null | head -1); fi
+          if [ -z "$DRIVER" ]; then echo "::error::no libcuda.so under /usr/local/cuda*"; exit 1; fi
           echo "CUDA_DRIVER_LIB=$DRIVER" >> $GITHUB_ENV
           echo "driver library: $DRIVER"
 
-      - name: Python ${{ matrix.python }}
+      - name: Python ${{ matrix.python }} + build deps
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
           export PATH="$HOME/.local/bin:$PATH"
           uv python install ${{ matrix.python }}
-          uv venv --python ${{ matrix.python }} /opt/venv
-          . /opt/venv/bin/activate
-          # patchelf from pip, NOT apt: focal ships 0.10, auditwheel needs >= 0.14.5.
+          uv venv --python ${{ matrix.python }} /opt/buildvenv
+          . /opt/buildvenv/bin/activate
           uv pip install "cmake>=3.28" ninja build wheel auditwheel scikit-build-core patchelf
           patchelf --version
 
@@ -196,17 +191,13 @@ jobs:
           sed -i "s/__version__ = \"$CUR\"/__version__ = \"$CUR+${{ matrix.variant }}\"/" "$F"
           echo "building $CUR+${{ matrix.variant }} for ${{ matrix.python }}"
 
-      # The variant name IS the build recipe. Map it to cmake flags. CPU baseline flags
-      # (avx/avx2/...) are shared; the backend prefix (openblas/mkl/vulkan/...) adds its own.
+      # The variant name is the recipe. Map instruction tail + backend prefix to cmake flags.
       - name: Compile
         run: |
           export PATH="$HOME/.local/bin:$PATH"
-          . /opt/venv/bin/activate
+          . /opt/buildvenv/bin/activate
           V="${{ matrix.variant }}"
 
-          # ---- CPU instruction-set flags from the tail of the name ----
-          # Default everything off; turn on what the name lists. GGML_NATIVE OFF always,
-          # or -march=native silently overrides these and the label becomes a lie.
           CPU="-DGGML_NATIVE=OFF -DGGML_AVX=OFF -DGGML_AVX2=OFF -DGGML_AVX512=OFF -DGGML_FMA=OFF -DGGML_F16C=OFF -DGGML_SSE42=OFF -DGGML_BMI2=OFF"
           case "$V" in
             *avx512*vnni*vbmi*bf16*amx*) CPU="-DGGML_NATIVE=OFF -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_AVX512=ON -DGGML_AVX512_VNNI=ON -DGGML_AVX512_VBMI=ON -DGGML_AVX512_BF16=ON -DGGML_FMA=ON -DGGML_F16C=ON" ;;
@@ -218,7 +209,6 @@ jobs:
             *avx*)                       CPU="-DGGML_NATIVE=OFF -DGGML_AVX=ON" ;;
           esac
 
-          # ---- backend prefix ----
           BACKEND=""
           case "$V" in
             openblas*) BACKEND="-DGGML_BLAS=ON -DGGML_BLAS_VENDOR=OpenBLAS" ;;
@@ -233,19 +223,6 @@ jobs:
 
           export CMAKE_ARGS="$BACKEND $CPU"
           export CMAKE_BUILD_PARALLEL_LEVEL=$(nproc)
-
-          # For CPU builds, use GCC 11 if we installed it — focal's default GCC 9 rejects
-          # -mavxvnni and the AVX-512 VBMI/BF16/AMX flags. CUDA builds keep their own host
-          # compiler (nvcc manages it). Only switch if the newer gcc is actually present.
-          if [ "${{ matrix.kind }}" = "cpu" ]; then
-            if command -v gcc-11 >/dev/null 2>&1; then
-              export CC=gcc-11 CXX=g++-11
-            elif command -v gcc-10 >/dev/null 2>&1; then
-              export CC=gcc-10 CXX=g++-10
-            fi
-            echo "CPU compiler: ${CC:-gcc (default)}"
-          fi
-
           echo "variant: $V"
           echo "CMAKE_ARGS=$CMAKE_ARGS"
           cd /src && python -m build --wheel --outdir /out 2>&1 | tee /tmp/build.log
@@ -260,7 +237,7 @@ jobs:
       - name: Repair, dedupe, report size
         run: |
           export PATH="$HOME/.local/bin:$PATH"
-          . /opt/venv/bin/activate
+          . /opt/buildvenv/bin/activate
           RAW=$(ls /out/*.whl); echo "raw: $(du -h "$RAW" | cut -f1)"
 
           python -m wheel unpack "$RAW" -d /tmp/unpacked
@@ -270,8 +247,6 @@ jobs:
           fi
           echo "wheel lib dir: $LIBDIR"
 
-          # Exclude the ggml family (already vendored in llama_cpp/lib/) so auditwheel doesn't
-          # copy a second set into llama_cpp_python.libs/. CUDA runtime libs excluded too.
           LD_LIBRARY_PATH="$LIBDIR:$LD_LIBRARY_PATH" auditwheel repair "$RAW" \
             --plat manylinux_2_31_x86_64 \
             --exclude libcuda.so.1 --exclude libcudart.so.12 \
@@ -280,13 +255,6 @@ jobs:
             --exclude libggml-cuda.so --exclude libllama.so --exclude libmtmd.so \
             -w /tmp/audited
 
-          # Drop the DUPLICATE ggml/llama libs only. auditwheel copies the whole vendored
-          # set into llama_cpp_python.libs/ (with hash suffixes), but those same libs are
-          # already in llama_cpp/lib/ where the loader reads them — so the .libs/ copies are
-          # redundant. BUT .libs/ also holds genuine external deps auditwheel pulled in, like
-          # libgomp (OpenMP runtime). Deleting the whole dir removed libgomp too and the wheel
-          # failed to import. So delete only files whose basename starts with a vendored lib
-          # name; keep everything else. Same for the top-level lib/ tree (pure duplicate).
           AUD=$(ls /tmp/audited/*.whl)
           python - "$AUD" <<'PY'
           import sys, zipfile, os, shutil, hashlib, base64, csv
@@ -294,34 +262,21 @@ jobs:
           if os.path.exists(work): shutil.rmtree(work)
           os.makedirs(work)
           with zipfile.ZipFile(src) as z: z.extractall(work)
-
-          VENDORED = ("libggml", "libllama", "libmtmd")  # these live in llama_cpp/lib/ already
-          def is_dupe(fname):
-              return any(fname.startswith(v) for v in VENDORED)
-
-          # top-level lib/ is an exact duplicate of llama_cpp/lib/ — safe to remove wholesale
+          VENDORED = ("libggml", "libllama", "libmtmd")
+          is_dupe = lambda f: any(f.startswith(v) for v in VENDORED)
           top = os.path.join(work, "lib")
-          if os.path.isdir(top):
-              shutil.rmtree(top); print("removed redundant lib/")
-
-          # llama_cpp_python.libs/ — remove ONLY the vendored dupes, keep real deps (libgomp)
+          if os.path.isdir(top): shutil.rmtree(top); print("removed redundant lib/")
           auditlibs = os.path.join(work, "llama_cpp_python.libs")
           if os.path.isdir(auditlibs):
               for f in os.listdir(auditlibs):
-                  if is_dupe(f):
-                      os.remove(os.path.join(auditlibs, f)); print("dropped dupe", f)
-                  else:
-                      print("kept real dep", f)
-              # if nothing left, drop the empty dir
-              if not os.listdir(auditlibs):
-                  os.rmdir(auditlibs)
-
+                  if is_dupe(f): os.remove(os.path.join(auditlibs, f)); print("dropped dupe", f)
+                  else: print("kept real dep", f)
+              if not os.listdir(auditlibs): os.rmdir(auditlibs)
           distinfo = [n for n in os.listdir(work) if n.endswith(".dist-info")][0]
           rows = []
           for root, _, files in os.walk(work):
               for f in files:
-                  full = os.path.join(root, f)
-                  rel = os.path.relpath(full, work).replace(os.sep, "/")
+                  full = os.path.join(root, f); rel = os.path.relpath(full, work).replace(os.sep, "/")
                   if rel.endswith("RECORD"): rows.append((rel, "", "")); continue
                   data = open(full, "rb").read()
                   h = base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b"=").decode()
@@ -343,8 +298,6 @@ jobs:
       - name: Sanity-check the wheel imports
         run: |
           export PATH="$HOME/.local/bin:$PATH"
-          # Fresh throwaway venv, installed into with uv (a bare `uv venv` has no pip of its
-          # own). --python-preference only-managed keeps it off the system interpreter.
           uv venv --python ${{ matrix.python }} /tmp/checkenv
           VIRTUAL_ENV=/tmp/checkenv uv pip install --quiet /repaired/*.whl
           /tmp/checkenv/bin/python -c "import llama_cpp; print('import OK', llama_cpp.__version__)"
@@ -354,9 +307,7 @@ jobs:
           BUILT=$(basename /repaired/*.whl)
           echo "built:    $BUILT"
           echo "expected: ${{ matrix.name }}"
-          [ "$BUILT" = "${{ matrix.name }}" ] || {
-            echo "::error::filename mismatch — planner would re-queue forever"; exit 1
-          }
+          [ "$BUILT" = "${{ matrix.name }}" ] || { echo "::error::filename mismatch"; exit 1; }
 
       - uses: actions/upload-artifact@v4
         with:
@@ -369,7 +320,7 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           export PATH="$HOME/.local/bin:$PATH"
-          . /opt/venv/bin/activate
+          . /opt/buildvenv/bin/activate
           uv pip install "huggingface_hub>=0.28"
           python - <<'PY'
           import os, glob
@@ -384,3 +335,31 @@ jobs:
                               commit_message=f"wheel: {name}")
               print("uploaded", name)
           PY
+
+      # ---- FAILURE LOGGING: on any failure above, write the log tail to the repo ----
+      - name: Record failure to repo
+        if: failure()
+        run: |
+          # Runs only when an earlier step failed. Captures the build log tail + a short
+          # reason and commits it to failures/<wheel>.txt so it can be read from the repo.
+          mkdir -p failures
+          OUT="failures/${{ matrix.name }}.txt"
+          {
+            echo "=== FAILED: ${{ matrix.name }} ==="
+            echo "variant: ${{ matrix.variant }}   kind: ${{ matrix.kind }}   python: ${{ matrix.python }}   cuda: ${{ matrix.cuda }}"
+            echo "run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo "time: $(date -u)"
+            echo ""
+            echo "=== build log tail (last 60 lines) ==="
+            tail -n 60 /tmp/build.log 2>/dev/null || echo "(no /tmp/build.log — failed before compile)"
+          } > "$OUT"
+
+          # Commit just this file. Pull --rebase first so parallel failing jobs don't clobber.
+          git config user.name  "factory[bot]"
+          git config user.email "factory@users.noreply.github.com"
+          git add "$OUT"
+          git commit -m "failure log: ${{ matrix.name }} [skip ci]" || exit 0
+          for i in 1 2 3 4 5; do
+            git pull --rebase --autostash origin ${{ github.ref_name }} && git push && break
+            echo "retry push $i"; sleep $((RANDOM % 5 + 2))
+          done
