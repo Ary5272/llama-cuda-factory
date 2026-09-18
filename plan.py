@@ -138,6 +138,7 @@ def main() -> int:
 
     matrix = {"include": [
         {"name": target[n]["name"], "kind": target[n]["kind"],
+         "variant": target[n]["variant"],
          "llama": target[n]["llama"], "python": target[n]["python"],
          "cuda": target[n]["cuda"], "cpu": target[n]["cpu"]}
         for n in batch
