@@ -110,6 +110,9 @@ jobs:
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
 
     steps:
+      - name: Check out the repo (for fix_wheel_name.py)
+        uses: actions/checkout@v4
+
       - name: Build tooling
         run: |
           export DEBIAN_FRONTEND=noninteractive
@@ -230,8 +233,22 @@ jobs:
             --exclude libcudart.so.12 \
             --exclude libcublas.so.12 \
             --exclude libcublasLt.so.12 \
-            -w /repaired
-          ls -lh /repaired
+            -w /tmp/repaired
+          ls -lh /tmp/repaired
+
+      - name: Restore underscores in the local version tag
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          . /opt/venv/bin/activate
+          # PEP 440 normalization rewrites every '_' in the local tag to '.', so auditwheel
+          # emits e.g. cu124.basic where the dataset's 4,382 existing wheels use cu124_basic.
+          # fix_wheel_name.py converts it back and rewrites the wheel's dist-info to match,
+          # keeping the whole dataset on one naming convention. Tested on multi-underscore
+          # tags like openblas_avx2_fma_f16c, not just cu124_basic.
+          mkdir -p /repaired
+          FIXED=$(python "$GITHUB_WORKSPACE/fix_wheel_name.py" /tmp/repaired/*.whl /repaired)
+          echo "final wheel: $FIXED"
+          ls -lh /repaired/*.whl
 
       - name: Check the name came out right
         run: |
