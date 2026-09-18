@@ -294,12 +294,11 @@ jobs:
       - name: Sanity-check the wheel imports
         run: |
           export PATH="$HOME/.local/bin:$PATH"
-          . /opt/venv/bin/activate
+          # Fresh throwaway venv, installed into with uv (a bare `uv venv` has no pip of its
+          # own). --python-preference only-managed keeps it off the system interpreter.
           uv venv --python ${{ matrix.python }} /tmp/checkenv
-          . /tmp/checkenv/bin/activate
-          pip install --quiet /repaired/*.whl
-          python -c "import llama_cpp; print('import OK', llama_cpp.__version__)"
-          deactivate || true
+          VIRTUAL_ENV=/tmp/checkenv uv pip install --quiet /repaired/*.whl
+          /tmp/checkenv/bin/python -c "import llama_cpp; print('import OK', llama_cpp.__version__)"
 
       - name: Check the name came out right
         run: |
