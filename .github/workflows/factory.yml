@@ -126,6 +126,17 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends \
             build-essential git curl ca-certificates xz-utils
+          # CPU builds need GCC 11+: focal ships GCC 9, which doesn't know the newest
+          # instruction flags (-mavxvnni, AVX-512 VBMI/BF16, AMX). Without it the 9
+          # variants using those instructions fail to compile. CUDA builds use the CUDA
+          # image's own host compiler and don't need this.
+          if [ "${{ matrix.kind }}" = "cpu" ]; then
+            apt-get install -y --no-install-recommends software-properties-common
+            add-apt-repository -y ppa:ubuntu-toolchain-r/test || true
+            apt-get update
+            apt-get install -y --no-install-recommends gcc-11 g++-11 || \
+              apt-get install -y --no-install-recommends gcc-10 g++-10 || true
+          fi
           rm -rf /var/lib/apt/lists/*
           echo "glibc: $(ldd --version | head -1)"
           if [ "${{ matrix.kind }}" = "cuda" ]; then nvcc --version; fi
@@ -222,6 +233,19 @@ jobs:
 
           export CMAKE_ARGS="$BACKEND $CPU"
           export CMAKE_BUILD_PARALLEL_LEVEL=$(nproc)
+
+          # For CPU builds, use GCC 11 if we installed it — focal's default GCC 9 rejects
+          # -mavxvnni and the AVX-512 VBMI/BF16/AMX flags. CUDA builds keep their own host
+          # compiler (nvcc manages it). Only switch if the newer gcc is actually present.
+          if [ "${{ matrix.kind }}" = "cpu" ]; then
+            if command -v gcc-11 >/dev/null 2>&1; then
+              export CC=gcc-11 CXX=g++-11
+            elif command -v gcc-10 >/dev/null 2>&1; then
+              export CC=gcc-10 CXX=g++-10
+            fi
+            echo "CPU compiler: ${CC:-gcc (default)}"
+          fi
+
           echo "variant: $V"
           echo "CMAKE_ARGS=$CMAKE_ARGS"
           cd /src && python -m build --wheel --outdir /out 2>&1 | tee /tmp/build.log
