@@ -2,16 +2,23 @@
 """
 Factory dispatcher.
 
-Works out every CUDA wheel in the configured range, subtracts what already exists in
-the dataset, and hands the next batch to the build matrix.
+Computes every wheel in range, subtracts what's already in the dataset, hands the next
+batch to the build matrix. The queue is DERIVED from the dataset every run — never stored
+as state, so a failed build simply reappears next time and nothing can get stuck the way
+the old Spaces job files did.
 
-The queue is DERIVED, never stored as state. The dataset is the only source of truth:
-a wheel exists or it doesn't. That's deliberate — the old Spaces factory kept job files
-with "claimed" and "skipped" statuses, and four MKL wheels got permanently stuck in one
-because the file disagreed with reality. Here a failed build just reappears in the next
-batch. Anything genuinely unbuildable goes in blocklist.json by hand, where you can see it.
+Two kinds of wheel, built differently:
 
-Writes QUEUE.md and queue.json as a readable board. Those are outputs, not inputs.
+  CPU  — an explicit list of 29 variants (config "cpu_variants"). These are NOT a product:
+         `openblas` pairs with 8 CPU levels, but `vulkan`/`sycl`/`clblast`/`opencl`/`rpc`
+         are baseline-only. Listing them explicitly avoids generating thousands of
+         combinations that never existed (e.g. vulkan_avx512), which would fail the name
+         check and re-queue forever.
+
+  CUDA — a product of (cuda_version x cpu_baseline), because those genuinely all exist.
+         Local tag is cu<major><minor>_<baseline>, e.g. cu124_basic.
+
+Both are crossed with (llama_version x python_version). Writes QUEUE.md + queue.json.
 """
 
 from __future__ import annotations
@@ -37,20 +44,18 @@ def load_json(name, default):
 
 
 def cuda_tag(version: str) -> str:
-    """12.4.1 -> cu124"""
     major, minor = version.split(".")[:2]
     return f"cu{major}{minor}"
 
 
 def py_tag(version: str) -> str:
-    """3.11 -> cp311"""
     return "cp" + version.replace(".", "")
 
 
-def wheel_name(llama_ver, cuda, cpu, python) -> str:
+def wheel_name(llama_ver: str, local: str, python: str) -> str:
     base = llama_ver.lstrip("v")
     tag = py_tag(python)
-    return f"llama_cpp_python-{base}+{cuda_tag(cuda)}_{cpu}-{tag}-{tag}-{PLATFORM}.whl"
+    return f"llama_cpp_python-{base}+{local}-{tag}-{tag}-{PLATFORM}.whl"
 
 
 def version_key(v: str):
@@ -58,22 +63,68 @@ def version_key(v: str):
     return tuple(int(n) for n in nums[:3]) if nums else (0, 0, 0)
 
 
+def build_targets(cfg):
+    """Return {wheel_name: job_dict} for the whole configured range."""
+    targets = {}
+    llamas = cfg["llama_versions"]
+    pythons = cfg["python_versions"]
+
+    # ---- CPU wheels: explicit variant list, NOT a product --------------
+    for variant, llama, python in itertools.product(cfg.get("cpu_variants", []), llamas, pythons):
+        name = wheel_name(llama, variant, python)
+        targets[name] = {
+            "name": name, "kind": "cpu", "variant": variant,
+            "llama": llama, "python": python,
+            # CPU builds run in the plain manylinux image, no CUDA.
+            "cuda": "", "cpu": variant,
+        }
+
+    # ---- CUDA wheels: product of (cuda_version x cpu_baseline) ----------
+    for cuda_v, baseline, llama, python in itertools.product(
+        cfg.get("cuda_versions", []), cfg.get("cuda_cpu_baselines", []), llamas, pythons
+    ):
+        local = f"{cuda_tag(cuda_v)}_{baseline}"
+        name = wheel_name(llama, local, python)
+        targets[name] = {
+            "name": name, "kind": "cuda", "variant": local,
+            "llama": llama, "python": python,
+            "cuda": cuda_v, "cpu": baseline,
+        }
+
+    return targets
+
+
+def sort_key(job):
+    """Newest llama first (0.3.19 before 0.3.16 — most-wanted), then CPU before CUDA
+    (CPU is cheap and fills the biggest gap), then by variant for stable grouping."""
+    return (
+        [-n for n in version_key(job["llama"])],   # newest version first
+        0 if job["kind"] == "cpu" else 1,           # CPU before CUDA
+        job["variant"], job["python"],
+    )
+
+
 def main() -> int:
     cfg = load_json("config.json", {})
     blocked = set(load_json("blocklist.json", []))
 
+    if not cfg.get("enabled", True):
+        with open(os.path.join(ROOT, "QUEUE.md"), "w") as fh:
+            fh.write("# Factory queue\n\n**STOPPED** — `enabled` is false in config.json.\n")
+        out = os.environ.get("GITHUB_OUTPUT")
+        if out:
+            with open(out, "a") as fh:
+                fh.write('matrix={"include":[]}\n')
+                fh.write("count=0\n")
+                fh.write("remaining=0\n")
+        print("factory disabled via config.json")
+        return 0
+
     dataset = cfg.get("dataset", "AIencoder/llama-cpp-wheels")
     batch_size = int(cfg.get("batch_size", 20))
 
-    # ---- the full target space -----------------------------------------
-    combos = list(itertools.product(
-        cfg["llama_versions"], cfg["cuda_versions"],
-        cfg["cpu_variants"], cfg["python_versions"],
-    ))
-    target = {wheel_name(l, c, f, p): dict(llama=l, cuda=c, cpu=f, python=p)
-              for l, c, f, p in combos}
+    target = build_targets(cfg)
 
-    # ---- what already exists -------------------------------------------
     api = HfApi(token=os.environ.get("HF_TOKEN"))
     existing = {f.split("/")[-1] for f in api.list_repo_files(dataset, repo_type="dataset")
                 if f.endswith(".whl")}
@@ -82,53 +133,51 @@ def main() -> int:
     todo = [n for n in target if n not in existing and n not in blocked]
     skipped = [n for n in target if n in blocked and n not in existing]
 
-    # Oldest llama version first, then cheapest CPU variant: finish whole
-    # versions rather than scattering half-built ones everywhere.
-    cpu_order = {name: i for i, name in enumerate(cfg["cpu_variants"])}
-    todo.sort(key=lambda n: (
-        version_key(target[n]["llama"]),
-        cpu_order.get(target[n]["cpu"], 99),
-        target[n]["cuda"],
-        target[n]["python"],
-    ))
-
+    todo.sort(key=lambda n: sort_key(target[n]))
     batch = todo[:batch_size]
+
     matrix = {"include": [
-        {"name": n, "llama": target[n]["llama"], "cuda": target[n]["cuda"],
-         "cpu": target[n]["cpu"], "python": target[n]["python"]}
+        {"name": target[n]["name"], "kind": target[n]["kind"],
+         "llama": target[n]["llama"], "python": target[n]["python"],
+         "cuda": target[n]["cuda"], "cpu": target[n]["cpu"]}
         for n in batch
     ]}
 
-    # ---- the board ------------------------------------------------------
+    # ---- board ---------------------------------------------------------
     total = len(target)
     pct = 100 * len(done) / total if total else 0
     filled = int(pct // 4)
+    n_cpu = sum(1 for n in target if target[n]["kind"] == "cpu")
+    n_cuda = total - n_cpu
+    todo_cpu = sum(1 for n in todo if target[n]["kind"] == "cpu")
+    todo_cuda = len(todo) - todo_cpu
 
     lines = [
         "# Factory queue",
         "",
-        "Regenerated on every run. Do not edit — change `config.json` instead.",
+        "Regenerated every run. Do not edit — change `config.json`.",
         "",
         f"`[{'#' * filled}{'.' * (25 - filled)}]` **{len(done)} / {total}** ({pct:.1f}%)",
         "",
         f"- built: **{len(done)}**",
-        f"- remaining: **{len(todo)}**",
+        f"- remaining: **{len(todo)}**  ({todo_cpu} CPU, {todo_cuda} CUDA)",
         f"- blocked: **{len(skipped)}**" + ("  (see `blocklist.json`)" if skipped else ""),
         "",
         "## Range",
         "",
         f"- llama-cpp-python: {', '.join(cfg['llama_versions'])}",
-        f"- CUDA: {', '.join(cfg['cuda_versions'])}",
-        f"- CPU baselines: {', '.join(cfg['cpu_variants'])}",
         f"- Python: {', '.join(cfg['python_versions'])}",
+        f"- CPU variants: {n_cpu} wheels across {len(cfg.get('cpu_variants', []))} variants",
+        f"- CUDA: {len(cfg.get('cuda_versions', []))} toolkit(s) x "
+        f"{len(cfg.get('cuda_cpu_baselines', []))} baseline(s) = {n_cuda} wheels",
         "",
         f"## Next batch ({len(batch)})",
         "",
     ]
     lines += [f"- `{n}`" for n in batch] or ["_nothing left to build_"]
 
-    if todo[batch_size:]:
-        rest = todo[batch_size:]
+    rest = todo[batch_size:]
+    if rest:
         lines += ["", f"## Still queued ({len(rest)})", "", "<details><summary>show</summary>", ""]
         lines += [f"- `{n}`" for n in rest[:400]]
         if len(rest) > 400:
@@ -143,10 +192,10 @@ def main() -> int:
 
     with open(os.path.join(ROOT, "queue.json"), "w") as fh:
         json.dump({"total": total, "built": len(done), "remaining": len(todo),
+                   "remaining_cpu": todo_cpu, "remaining_cuda": todo_cuda,
                    "blocked": sorted(skipped), "next_batch": batch,
-                   "queued": todo[batch_size:]}, fh, indent=2)
+                   "queued": rest}, fh, indent=2)
 
-    # ---- hand off to Actions -------------------------------------------
     out = os.environ.get("GITHUB_OUTPUT")
     if out:
         with open(out, "a") as fh:
@@ -154,10 +203,11 @@ def main() -> int:
             fh.write(f"count={len(batch)}\n")
             fh.write(f"remaining={len(todo)}\n")
 
-    print(f"target {total} | built {len(done)} | remaining {len(todo)} | blocked {len(skipped)}")
+    print(f"target {total} ({n_cpu} CPU + {n_cuda} CUDA) | built {len(done)} | "
+          f"remaining {len(todo)} | blocked {len(skipped)}")
     print(f"dispatching {len(batch)}:")
     for n in batch:
-        print("   ", n)
+        print("   ", target[n]["kind"], n)
     return 0
 
 
