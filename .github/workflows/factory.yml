@@ -1,11 +1,15 @@
 name: Factory
 
-# CUDA wheel factory. Builds inside nvidia/cuda:*-devel-ubuntu20.04 — no GPU involved,
-# nvcc cross-compiles.
+# llama-cpp-python wheel factory. Builds both CPU and CUDA wheels on free GitHub runners
+# and pushes them to AIencoder/llama-cpp-wheels.
 #
-# EMERGENCY STOP: set "enabled": false in config.json. Every future run then plans
-# nothing and builds nothing. To kill a run already going, use the Cancel workflow
-# button on the run page — nothing is lost, the queue is derived from the dataset.
+#   CPU wheels  -> plain manylinux image, backend flags from the variant name
+#   CUDA wheels -> nvidia/cuda:*-devel-ubuntu20.04, self-contained, all architectures
+#
+# No GPU is used; nvcc cross-compiles. Both tag manylinux_2_31_x86_64 (glibc 2.31).
+#
+# EMERGENCY STOP: set "enabled": false in config.json. To kill a run already going, use
+# the Cancel workflow button — nothing is lost, the queue is derived from the dataset.
 
 on:
   schedule:
@@ -63,6 +67,7 @@ jobs:
         if: steps.gate.outputs.enabled == 'true'
         env:
           BATCH: ${{ github.event.inputs.batch_size || '20' }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           python - <<'PY'
           import json, os
@@ -101,8 +106,10 @@ jobs:
       github.event.inputs.dry_run != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 350
+    # CUDA wheels build inside the CUDA devel image; CPU wheels in a plain manylinux-era
+    # Ubuntu. The matrix carries an empty "cuda" for CPU jobs, so pick the image per-row.
     container:
-      image: nvidia/cuda:${{ matrix.cuda }}-devel-ubuntu20.04
+      image: ${{ matrix.kind == 'cuda' && format('nvidia/cuda:{0}-devel-ubuntu20.04', matrix.cuda) || 'ubuntu:20.04' }}
 
     strategy:
       fail-fast: false
@@ -120,22 +127,35 @@ jobs:
           apt-get install -y --no-install-recommends \
             build-essential git curl ca-certificates xz-utils
           rm -rf /var/lib/apt/lists/*
-          nvcc --version
           echo "glibc: $(ldd --version | head -1)"
+          if [ "${{ matrix.kind }}" = "cuda" ]; then nvcc --version; fi
 
-      # FindCUDAToolkit resolves CUDA::cuda_driver by looking for libcuda.so. A container
-      # has no driver, only the toolkit's stub — point cmake straight at it rather than
-      # hoping the search finds it. This is what broke the first Kaggle attempts.
+      # OpenBLAS / MKL / etc. need their dev libraries present at build time. Only install
+      # what a CPU variant actually needs; CUDA and baseline variants skip this.
+      - name: Backend libraries (CPU variants)
+        if: matrix.kind == 'cpu'
+        run: |
+          export DEBIAN_FRONTEND=noninteractive
+          case "${{ matrix.variant }}" in
+            openblas*) apt-get update && apt-get install -y --no-install-recommends libopenblas-dev ;;
+            mkl*)      apt-get update && apt-get install -y --no-install-recommends intel-mkl || echo "::warning::intel-mkl unavailable, build may fall back" ;;
+            vulkan*)   apt-get update && apt-get install -y --no-install-recommends libvulkan-dev glslang-tools ;;
+            clblast*)  apt-get update && apt-get install -y --no-install-recommends libclblast-dev ;;
+            opencl*)   apt-get update && apt-get install -y --no-install-recommends ocl-icd-opencl-dev ;;
+          esac
+          rm -rf /var/lib/apt/lists/*
+
+      # CUDA only: FindCUDAToolkit resolves CUDA::cuda_driver via libcuda.so, which a
+      # container lacks (only the stub is present). Point cmake straight at the stub.
       - name: Locate the CUDA driver library
+        if: matrix.kind == 'cuda'
         run: |
           DRIVER=$(find /usr/local/cuda* -name 'libcuda.so' 2>/dev/null | head -1)
           if [ -z "$DRIVER" ]; then
             DRIVER=$(find /usr/local/cuda* -name 'libcuda.so*' 2>/dev/null | head -1)
           fi
           if [ -z "$DRIVER" ]; then
-            echo "::error::no libcuda.so under /usr/local/cuda*"
-            find /usr/local/cuda* -name 'libcuda*' 2>/dev/null || true
-            exit 1
+            echo "::error::no libcuda.so under /usr/local/cuda*"; exit 1
           fi
           echo "CUDA_DRIVER_LIB=$DRIVER" >> $GITHUB_ENV
           echo "driver library: $DRIVER"
@@ -147,8 +167,7 @@ jobs:
           uv python install ${{ matrix.python }}
           uv venv --python ${{ matrix.python }} /opt/venv
           . /opt/venv/bin/activate
-          # patchelf from pip, NOT apt: focal ships 0.10 and auditwheel needs >= 0.14.5.
-          # The venv's bin comes ahead of /usr/bin once activated.
+          # patchelf from pip, NOT apt: focal ships 0.10, auditwheel needs >= 0.14.5.
           uv pip install "cmake>=3.28" ninja build wheel auditwheel scikit-build-core patchelf
           patchelf --version
 
@@ -161,94 +180,126 @@ jobs:
 
       - name: Stamp local version
         run: |
-          CU=$(echo "${{ matrix.cuda }}" | cut -d. -f1,2 | tr -d .)
-          LOCAL="cu${CU}_${{ matrix.cpu }}"
           F=/src/llama_cpp/__init__.py
           CUR=$(grep -oP '__version__\s*=\s*"\K[^"]+' "$F")
-          sed -i "s/__version__ = \"$CUR\"/__version__ = \"$CUR+$LOCAL\"/" "$F"
-          echo "building $CUR+$LOCAL for ${{ matrix.python }}"
+          sed -i "s/__version__ = \"$CUR\"/__version__ = \"$CUR+${{ matrix.variant }}\"/" "$F"
+          echo "building $CUR+${{ matrix.variant }} for ${{ matrix.python }}"
 
+      # The variant name IS the build recipe. Map it to cmake flags. CPU baseline flags
+      # (avx/avx2/...) are shared; the backend prefix (openblas/mkl/vulkan/...) adds its own.
       - name: Compile
-        env:
-          # 60 so Kaggle's P100 can run these, up to 89 for Ada.
-          CUDA_ARCHS: "60;61;70;75;80;86;89"
         run: |
           export PATH="$HOME/.local/bin:$PATH"
           . /opt/venv/bin/activate
-          # GGML_NATIVE defaults ON and silently overrides everything below with
-          # -march=native, tuning each wheel to whatever CPU the runner happened to draw.
-          # basic also needs SSE42 and BMI2 off: BMI2 is Haswell-era, and a baseline
-          # wheel carrying it would crash on the pre-2013 machines that variant exists for.
-          case "${{ matrix.cpu }}" in
-            basic)
-              CPU="-DGGML_AVX=OFF -DGGML_AVX2=OFF -DGGML_FMA=OFF -DGGML_F16C=OFF -DGGML_SSE42=OFF -DGGML_BMI2=OFF" ;;
-            avx2_fma_f16c)
-              CPU="-DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON" ;;
-            avx512_fma_f16c)
-              CPU="-DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_AVX512=ON -DGGML_FMA=ON -DGGML_F16C=ON" ;;
-            *)
-              echo "::error::unknown cpu variant ${{ matrix.cpu }}"; exit 1 ;;
+          V="${{ matrix.variant }}"
+
+          # ---- CPU instruction-set flags from the tail of the name ----
+          # Default everything off; turn on what the name lists. GGML_NATIVE OFF always,
+          # or -march=native silently overrides these and the label becomes a lie.
+          CPU="-DGGML_NATIVE=OFF -DGGML_AVX=OFF -DGGML_AVX2=OFF -DGGML_AVX512=OFF -DGGML_FMA=OFF -DGGML_F16C=OFF -DGGML_SSE42=OFF -DGGML_BMI2=OFF"
+          case "$V" in
+            *avx512*vnni*vbmi*bf16*amx*) CPU="-DGGML_NATIVE=OFF -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_AVX512=ON -DGGML_AVX512_VNNI=ON -DGGML_AVX512_VBMI=ON -DGGML_AVX512_BF16=ON -DGGML_FMA=ON -DGGML_F16C=ON" ;;
+            *avx512*vnni*vbmi*)          CPU="-DGGML_NATIVE=OFF -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_AVX512=ON -DGGML_AVX512_VNNI=ON -DGGML_AVX512_VBMI=ON -DGGML_FMA=ON -DGGML_F16C=ON" ;;
+            *avx512*)                    CPU="-DGGML_NATIVE=OFF -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_AVX512=ON -DGGML_FMA=ON -DGGML_F16C=ON" ;;
+            *avx2*avxvnni*)              CPU="-DGGML_NATIVE=OFF -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_AVX_VNNI=ON -DGGML_FMA=ON -DGGML_F16C=ON" ;;
+            *avx2*fma*f16c*)             CPU="-DGGML_NATIVE=OFF -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON" ;;
+            *avx*f16c*)                  CPU="-DGGML_NATIVE=OFF -DGGML_AVX=ON -DGGML_F16C=ON" ;;
+            *avx*)                       CPU="-DGGML_NATIVE=OFF -DGGML_AVX=ON" ;;
           esac
-          # CMAKE_BUILD_TYPE is deliberately absent — scikit-build-core sets Release
-          # itself and warns three times per build when you pass it.
-          export CMAKE_ARGS="-DGGML_CUDA=ON -DGGML_NATIVE=OFF -DCMAKE_CUDA_ARCHITECTURES=${CUDA_ARCHS} -DCUDA_cuda_driver_LIBRARY=${CUDA_DRIVER_LIB} $CPU"
+
+          # ---- backend prefix ----
+          BACKEND=""
+          case "$V" in
+            openblas*) BACKEND="-DGGML_BLAS=ON -DGGML_BLAS_VENDOR=OpenBLAS" ;;
+            mkl*)      BACKEND="-DGGML_BLAS=ON -DGGML_BLAS_VENDOR=Intel10_64lp" ;;
+            vulkan*)   BACKEND="-DGGML_VULKAN=ON" ;;
+            clblast*)  BACKEND="-DGGML_CLBLAST=ON" ;;
+            opencl*)   BACKEND="-DGGML_OPENCL=ON" ;;
+            sycl*)     BACKEND="-DGGML_SYCL=ON" ;;
+            rpc*)      BACKEND="-DGGML_RPC=ON" ;;
+            cu*)       BACKEND="-DGGML_CUDA=ON -DGGML_CUDA_FORCE_MMQ=ON -DCMAKE_CUDA_ARCHITECTURES=all -DCUDA_cuda_driver_LIBRARY=${CUDA_DRIVER_LIB}" ;;
+          esac
+
+          export CMAKE_ARGS="$BACKEND $CPU"
           export CMAKE_BUILD_PARALLEL_LEVEL=$(nproc)
+          echo "variant: $V"
           echo "CMAKE_ARGS=$CMAKE_ARGS"
           cd /src && python -m build --wheel --outdir /out 2>&1 | tee /tmp/build.log
 
-      - name: Confirm the CPU flags actually applied
+      - name: Confirm CPU flags applied (no -march=native leak)
         run: |
-          # The build prints "Adding CPU backend variant ggml-cpu: <flags>". If that says
-          # march=native, GGML_NATIVE didn't take and the wheel's CPU label is a lie.
           grep "Adding CPU backend variant" /tmp/build.log || true
           if grep -q "march=native" /tmp/build.log; then
-            echo "::error::-march=native leaked in — wheel is not portable"
-            exit 1
+            echo "::error::-march=native leaked in — wheel not portable"; exit 1
           fi
 
-      - name: Repair to manylinux_2_31
+      - name: Repair, dedupe, report size
         run: |
           export PATH="$HOME/.local/bin:$PATH"
           . /opt/venv/bin/activate
-          # llama.cpp's own libraries (libmtmd, libllama, libggml...) are bundled INSIDE the
-          # wheel under llama_cpp/lib/. auditwheel inspects the compiled extension, sees it
-          # depends on those, and can't resolve them unless that directory is on the library
-          # search path — otherwise it dies with 'libmtmd.so could not be located'. Unpack
-          # the wheel, find the bundled lib dir, and put it on LD_LIBRARY_PATH before repair.
-          # This is exactly how upstream's own release workflow does it.
-          WHEEL=$(ls /out/*.whl)
-          python -m wheel unpack "$WHEEL" -d /tmp/unpacked
+          RAW=$(ls /out/*.whl); echo "raw: $(du -h "$RAW" | cut -f1)"
+
+          python -m wheel unpack "$RAW" -d /tmp/unpacked
           LIBDIR=$(dirname "$(find /tmp/unpacked -name 'libllama.so' | head -1)")
           if [ -z "$LIBDIR" ] || [ "$LIBDIR" = "." ]; then
-            echo "::error::couldn't find llama.cpp libs inside the wheel"
-            find /tmp/unpacked -name '*.so' || true
-            exit 1
+            echo "::error::llama.cpp libs not found in wheel"; find /tmp/unpacked -name '*.so'; exit 1
           fi
           echo "wheel lib dir: $LIBDIR"
-          # CUDA libraries stay excluded — bundling cuBLAS is what makes upstream's Windows
-          # wheels 428 MB. The installing machine supplies its own runtime.
-          LD_LIBRARY_PATH="$LIBDIR:$LD_LIBRARY_PATH" auditwheel repair "$WHEEL" \
-            --plat manylinux_2_31_x86_64 \
-            --exclude libcuda.so.1 \
-            --exclude libcudart.so.12 \
-            --exclude libcublas.so.12 \
-            --exclude libcublasLt.so.12 \
-            -w /tmp/repaired
-          ls -lh /tmp/repaired
 
-      - name: Restore underscores in the local version tag
+          # Exclude the ggml family (already vendored in llama_cpp/lib/) so auditwheel doesn't
+          # copy a second set into llama_cpp_python.libs/. CUDA runtime libs excluded too.
+          LD_LIBRARY_PATH="$LIBDIR:$LD_LIBRARY_PATH" auditwheel repair "$RAW" \
+            --plat manylinux_2_31_x86_64 \
+            --exclude libcuda.so.1 --exclude libcudart.so.12 \
+            --exclude libcublas.so.12 --exclude libcublasLt.so.12 \
+            --exclude libggml.so --exclude libggml-base.so --exclude libggml-cpu.so \
+            --exclude libggml-cuda.so --exclude libllama.so --exclude libmtmd.so \
+            -w /tmp/audited
+
+          # Drop redundant duplicate lib trees; the loader only reads llama_cpp/lib/.
+          AUD=$(ls /tmp/audited/*.whl)
+          python - "$AUD" <<'PY'
+          import sys, zipfile, os, shutil, hashlib, base64, csv
+          src = sys.argv[1]; work = "/tmp/deduped_tree"
+          if os.path.exists(work): shutil.rmtree(work)
+          os.makedirs(work)
+          with zipfile.ZipFile(src) as z: z.extractall(work)
+          for d in ("lib", "llama_cpp_python.libs"):
+              p = os.path.join(work, d)
+              if os.path.isdir(p): shutil.rmtree(p); print("removed redundant", d + "/")
+          distinfo = [n for n in os.listdir(work) if n.endswith(".dist-info")][0]
+          rows = []
+          for root, _, files in os.walk(work):
+              for f in files:
+                  full = os.path.join(root, f)
+                  rel = os.path.relpath(full, work).replace(os.sep, "/")
+                  if rel.endswith("RECORD"): rows.append((rel, "", "")); continue
+                  data = open(full, "rb").read()
+                  h = base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b"=").decode()
+                  rows.append((rel, f"sha256={h}", str(len(data))))
+          with open(os.path.join(work, distinfo, "RECORD"), "w", newline="") as fh:
+              csv.writer(fh).writerows(rows)
+          out = "/tmp/deduped"; os.makedirs(out, exist_ok=True)
+          base = os.path.basename(src)
+          shutil.make_archive(os.path.join(out, base[:-4]), "zip", work)
+          os.rename(os.path.join(out, base[:-4] + ".zip"), os.path.join(out, base))
+          print("deduped:", os.path.join(out, base))
+          PY
+
+          mkdir -p /repaired
+          FIXED=$(python "$GITHUB_WORKSPACE/fix_wheel_name.py" /tmp/deduped/*.whl /repaired)
+          echo "final: $FIXED"
+          echo "FINAL SIZE: $(du -h /repaired/*.whl | cut -f1)"
+
+      - name: Sanity-check the wheel imports
         run: |
           export PATH="$HOME/.local/bin:$PATH"
           . /opt/venv/bin/activate
-          # PEP 440 normalization rewrites every '_' in the local tag to '.', so auditwheel
-          # emits e.g. cu124.basic where the dataset's 4,382 existing wheels use cu124_basic.
-          # fix_wheel_name.py converts it back and rewrites the wheel's dist-info to match,
-          # keeping the whole dataset on one naming convention. Tested on multi-underscore
-          # tags like openblas_avx2_fma_f16c, not just cu124_basic.
-          mkdir -p /repaired
-          FIXED=$(python "$GITHUB_WORKSPACE/fix_wheel_name.py" /tmp/repaired/*.whl /repaired)
-          echo "final wheel: $FIXED"
-          ls -lh /repaired/*.whl
+          uv venv --python ${{ matrix.python }} /tmp/checkenv
+          . /tmp/checkenv/bin/activate
+          pip install --quiet /repaired/*.whl
+          python -c "import llama_cpp; print('import OK', llama_cpp.__version__)"
+          deactivate || true
 
       - name: Check the name came out right
         run: |
@@ -256,8 +307,7 @@ jobs:
           echo "built:    $BUILT"
           echo "expected: ${{ matrix.name }}"
           [ "$BUILT" = "${{ matrix.name }}" ] || {
-            echo "::error::filename mismatch — the planner would re-queue this forever"
-            exit 1
+            echo "::error::filename mismatch — planner would re-queue forever"; exit 1
           }
 
       - uses: actions/upload-artifact@v4
@@ -277,13 +327,12 @@ jobs:
           import os, glob
           from huggingface_hub import HfApi
           token = os.environ.get("HF_TOKEN")
-          if not token:
-              raise SystemExit("HF_TOKEN secret is not set")
+          if not token: raise SystemExit("HF_TOKEN secret not set")
           api = HfApi(token=token)
           for path in glob.glob("/repaired/*.whl"):
               name = os.path.basename(path)
               api.upload_file(path_or_fileobj=path, path_in_repo=name,
                               repo_id="AIencoder/llama-cpp-wheels", repo_type="dataset",
-                              commit_message=f"CUDA wheel: {name}")
+                              commit_message=f"wheel: {name}")
               print("uploaded", name)
           PY
