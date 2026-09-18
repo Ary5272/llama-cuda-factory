@@ -58,5 +58,5 @@
     "avx2_fma_f16c",
     "avx512_fma_f16c"
   ],
-  "batch_size": 20
+  "batch_size": 5
 }
