@@ -256,7 +256,13 @@ jobs:
             --exclude libggml-cuda.so --exclude libllama.so --exclude libmtmd.so \
             -w /tmp/audited
 
-          # Drop redundant duplicate lib trees; the loader only reads llama_cpp/lib/.
+          # Drop the DUPLICATE ggml/llama libs only. auditwheel copies the whole vendored
+          # set into llama_cpp_python.libs/ (with hash suffixes), but those same libs are
+          # already in llama_cpp/lib/ where the loader reads them — so the .libs/ copies are
+          # redundant. BUT .libs/ also holds genuine external deps auditwheel pulled in, like
+          # libgomp (OpenMP runtime). Deleting the whole dir removed libgomp too and the wheel
+          # failed to import. So delete only files whose basename starts with a vendored lib
+          # name; keep everything else. Same for the top-level lib/ tree (pure duplicate).
           AUD=$(ls /tmp/audited/*.whl)
           python - "$AUD" <<'PY'
           import sys, zipfile, os, shutil, hashlib, base64, csv
@@ -264,9 +270,28 @@ jobs:
           if os.path.exists(work): shutil.rmtree(work)
           os.makedirs(work)
           with zipfile.ZipFile(src) as z: z.extractall(work)
-          for d in ("lib", "llama_cpp_python.libs"):
-              p = os.path.join(work, d)
-              if os.path.isdir(p): shutil.rmtree(p); print("removed redundant", d + "/")
+
+          VENDORED = ("libggml", "libllama", "libmtmd")  # these live in llama_cpp/lib/ already
+          def is_dupe(fname):
+              return any(fname.startswith(v) for v in VENDORED)
+
+          # top-level lib/ is an exact duplicate of llama_cpp/lib/ — safe to remove wholesale
+          top = os.path.join(work, "lib")
+          if os.path.isdir(top):
+              shutil.rmtree(top); print("removed redundant lib/")
+
+          # llama_cpp_python.libs/ — remove ONLY the vendored dupes, keep real deps (libgomp)
+          auditlibs = os.path.join(work, "llama_cpp_python.libs")
+          if os.path.isdir(auditlibs):
+              for f in os.listdir(auditlibs):
+                  if is_dupe(f):
+                      os.remove(os.path.join(auditlibs, f)); print("dropped dupe", f)
+                  else:
+                      print("kept real dep", f)
+              # if nothing left, drop the empty dir
+              if not os.listdir(auditlibs):
+                  os.rmdir(auditlibs)
+
           distinfo = [n for n in os.listdir(work) if n.endswith(".dist-info")][0]
           rows = []
           for root, _, files in os.walk(work):
