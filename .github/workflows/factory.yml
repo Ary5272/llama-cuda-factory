@@ -166,14 +166,26 @@ jobs:
       - name: Backend libraries (CPU variants, dnf)
         if: matrix.kind == 'cpu'
         run: |
+          # EPEL first — opencl/vulkan/clblast headers all live there. (The earlier bug: only
+          # clblast enabled EPEL, so opencl/vulkan silently got no packages and cmake failed.)
           case "${{ matrix.variant }}" in
-            openblas*) dnf install -y openblas-devel || echo "::warning::openblas-devel install failed" ;;
-            vulkan*)   dnf install -y vulkan-loader-devel vulkan-headers glslang || echo "::warning::vulkan deps failed" ;;
-            opencl*)   dnf install -y ocl-icd-devel opencl-headers || echo "::warning::opencl deps failed" ;;
-            clblast*)  dnf install -y epel-release && dnf install -y clblast-devel || echo "::warning::clblast unavailable, build may fail" ;;
-            mkl*)
-              # Intel MKL isn't in base/EPEL — add Intel's oneAPI repo and install it.
-              # ~2GB, so mkl jobs are slower, but they then have a real BLAS to link.
+            openblas*) dnf install -y openblas-devel || echo "::warning::openblas-devel failed" ;;
+            vulkan*)
+              dnf install -y epel-release || true
+              # Vulkan needs the loader, headers, AND a shader compiler (glslc). glslang alone
+              # doesn't provide glslc — vulkan-tools / glslc do.
+              dnf install -y vulkan-loader-devel vulkan-headers glslc glslang vulkan-tools \
+                || echo "::warning::vulkan deps incomplete — build may fail on glslc" ;;
+            opencl*)
+              dnf install -y epel-release || true
+              dnf install -y ocl-icd-devel opencl-headers || echo "::warning::opencl deps failed" ;;
+            clblast*)
+              dnf install -y epel-release || true
+              dnf install -y clblast-devel || echo "::warning::clblast unavailable" ;;
+            sycl*)
+              # SYCL builds with Intel's DPC++ compiler (icpx), from the SAME oneAPI repo we
+              # use for MKL. Big (~5GB toolchain) so sycl jobs are slow, but it's the real
+              # Intel-documented path and it works. llama.cpp SYCL also wants MKL, installed here too.
               tee /etc/yum.repos.d/oneAPI.repo >/dev/null <<'REPO'
           [oneAPI]
           name=Intel oneAPI
@@ -183,7 +195,20 @@ jobs:
           repo_gpgcheck=1
           gpgkey=https://yum.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB
           REPO
-              dnf install -y intel-oneapi-mkl-devel || echo "::warning::MKL install failed — build will fail"
+              dnf install -y intel-oneapi-compiler-dpcpp-cpp intel-oneapi-mkl-devel \
+                || echo "::warning::SYCL toolchain install failed — build will fail"
+              ;;
+            mkl*)
+              tee /etc/yum.repos.d/oneAPI.repo >/dev/null <<'REPO'
+          [oneAPI]
+          name=Intel oneAPI
+          baseurl=https://yum.repos.intel.com/oneapi
+          enabled=1
+          gpgcheck=1
+          repo_gpgcheck=1
+          gpgkey=https://yum.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB
+          REPO
+              dnf install -y intel-oneapi-mkl-devel || echo "::warning::MKL install failed"
               ;;
           esac
 
@@ -241,13 +266,14 @@ jobs:
           esac
 
           BACKEND=""
+          SYCL_BUILD=""
           case "$V" in
             openblas*) BACKEND="-DGGML_BLAS=ON -DGGML_BLAS_VENDOR=OpenBLAS" ;;
             mkl*)      BACKEND="-DGGML_BLAS=ON -DGGML_BLAS_VENDOR=Intel10_64lp" ;;
             vulkan*)   BACKEND="-DGGML_VULKAN=ON" ;;
             clblast*)  BACKEND="-DGGML_CLBLAST=ON" ;;
             opencl*)   BACKEND="-DGGML_OPENCL=ON" ;;
-            sycl*)     BACKEND="-DGGML_SYCL=ON" ;;
+            sycl*)     BACKEND="-DGGML_SYCL=ON -DGGML_SYCL_TARGET=INTEL -DCMAKE_C_COMPILER=icx -DCMAKE_CXX_COMPILER=icpx"; SYCL_BUILD=1 ;;
             rpc*)      BACKEND="-DGGML_RPC=ON" ;;
             cu*)       BACKEND="-DGGML_CUDA=ON -DGGML_CUDA_FORCE_MMQ=ON -DCMAKE_CUDA_ARCHITECTURES=all -DCUDA_cuda_driver_LIBRARY=${CUDA_DRIVER_LIB}" ;;
           esac
@@ -262,11 +288,17 @@ jobs:
           ccache --max-size=2G 2>/dev/null || true
           ccache --zero-stats 2>/dev/null || true
 
-          # MKL variants: source Intel's env so MKLROOT is set and cmake's Intel10_64lp
-          # vendor lookup succeeds. No-op for every other variant.
+          # MKL and SYCL both need Intel's env sourced (MKLROOT for MKL's BLAS vendor lookup;
+          # the icx/icpx compilers on PATH for SYCL). No-op for every other variant.
           if [ -f /opt/intel/oneapi/setvars.sh ]; then
             set +u; source /opt/intel/oneapi/setvars.sh >/dev/null 2>&1 || true; set -u
             echo "MKLROOT=${MKLROOT:-unset}"
+          fi
+          if [ -n "$SYCL_BUILD" ]; then
+            # SYCL builds with Intel's compiler, not gcc. Confirm it's on PATH.
+            command -v icpx >/dev/null 2>&1 && echo "SYCL compiler: $(icpx --version | head -1)" \
+              || echo "::warning::icpx not found — SYCL build will fail"
+            export CC=icx CXX=icpx
           fi
 
           echo "variant: $V"
@@ -298,18 +330,18 @@ jobs:
           # We therefore DON'T exclude libmkl/libiomp5; auditwheel packs them in. This makes
           # mkl wheels large (~150-400MB) but self-contained and actually working. The
           # original dataset's mkl wheels were ~4MB (excluded) and silently broken.
-          # auditwheel needs the MKL libs on its search path to find and copy them — they
-          # live in Intel's oneAPI dirs, not a standard location. Add whichever exist.
-          MKL_PATHS=""
+          # auditwheel needs Intel's libs (MKL and/or SYCL runtime) on its search path to find
+          # and copy them — they live in oneAPI dirs, not a standard location. Add whichever exist.
+          INTEL_PATHS=""
           for d in /opt/intel/oneapi/mkl/latest/lib \
                    /opt/intel/oneapi/mkl/latest/lib/intel64 \
                    /opt/intel/oneapi/compiler/latest/lib \
                    /opt/intel/oneapi/compiler/latest/linux/compiler/lib/intel64_lin; do
-            [ -d "$d" ] && MKL_PATHS="$d:$MKL_PATHS"
+            [ -d "$d" ] && INTEL_PATHS="$d:$INTEL_PATHS"
           done
-          [ -n "$MKL_PATHS" ] && echo "MKL lib paths: $MKL_PATHS"
+          [ -n "$INTEL_PATHS" ] && echo "Intel lib paths: $INTEL_PATHS"
 
-          LD_LIBRARY_PATH="$LIBDIR:$MKL_PATHS$LD_LIBRARY_PATH" auditwheel repair "$RAW" \
+          LD_LIBRARY_PATH="$LIBDIR:$INTEL_PATHS$LD_LIBRARY_PATH" auditwheel repair "$RAW" \
             --plat manylinux_2_31_x86_64 \
             --exclude libcuda.so.1 --exclude libcudart.so.12 \
             --exclude libcublas.so.12 --exclude libcublasLt.so.12 \
