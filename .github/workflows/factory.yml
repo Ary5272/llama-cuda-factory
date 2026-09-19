@@ -27,8 +27,8 @@ on:
   workflow_dispatch:
     inputs:
       batch_size:
-        description: "Wheels this run (20 run in parallel on Free)"
-        default: "20"
+        description: "Wheels this run (20 run in parallel on Free; extra queue behind them)"
+        default: "40"
       dry_run:
         description: "Plan only — build nothing"
         type: boolean
@@ -129,6 +129,18 @@ jobs:
       - name: Check out the repo (for fix_wheel_name.py + failure logging)
         uses: actions/checkout@v4
 
+      # Persist compiled objects across runs. The 7 pythons of the same variant+version share
+      # identical C++ objects (only the binding differs), so a ccache hit skips most of the
+      # compile. Keyed by variant+llama; restore-keys let a near-miss still reuse a lot.
+      - name: ccache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/ccache
+          key: ccache-${{ matrix.kind }}-${{ matrix.variant }}-${{ matrix.llama }}
+          restore-keys: |
+            ccache-${{ matrix.kind }}-${{ matrix.variant }}-
+            ccache-${{ matrix.kind }}-
+
       # ---- tooling: two package managers, chosen by image ----
       - name: Build tooling (CUDA image, apt)
         if: matrix.kind == 'cuda'
@@ -136,7 +148,7 @@ jobs:
           export DEBIAN_FRONTEND=noninteractive
           apt-get update
           apt-get install -y --no-install-recommends \
-            build-essential git curl ca-certificates xz-utils
+            build-essential git curl ca-certificates xz-utils ccache
           rm -rf /var/lib/apt/lists/*
           echo "glibc: $(ldd --version | head -1)"
           nvcc --version
@@ -145,6 +157,7 @@ jobs:
         if: matrix.kind == 'cpu'
         run: |
           # gcc 14 + binutils 2.40 are already on PATH in manylinux_2_28. git/curl present.
+          dnf install -y ccache || echo "::warning::ccache unavailable (build still works, just no cache)"
           gcc --version | head -1
           echo "assembler: $(as --version | head -1)"
           echo "glibc: $(ldd --version | head -1)"
@@ -241,6 +254,13 @@ jobs:
 
           export CMAKE_ARGS="$BACKEND $CPU"
           export CMAKE_BUILD_PARALLEL_LEVEL=$(nproc)
+
+          # Use the persisted ccache. GGML_CCACHE is on by default but warned "not found"
+          # before; now ccache is installed and pointed at the cached dir.
+          export CCACHE_DIR=/tmp/ccache
+          export CMAKE_ARGS="$CMAKE_ARGS -DGGML_CCACHE=ON"
+          ccache --max-size=2G 2>/dev/null || true
+          ccache --zero-stats 2>/dev/null || true
 
           # MKL variants: source Intel's env so MKLROOT is set and cmake's Intel10_64lp
           # vendor lookup succeeds. No-op for every other variant.
