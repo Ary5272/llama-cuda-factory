@@ -18,7 +18,12 @@ name: Factory
 
 on:
   schedule:
-    - cron: "0 */6 * * *"
+    # Every 15 min. concurrency (group: factory, below) means a new tick waits for the
+    # current run instead of stacking, so this self-throttles to "as fast as a run finishes"
+    # — ~12h for the whole backlog. GitHub's scheduler is best-effort and may fire less often
+    # under load; that's fine, it just paces itself. Once the queue is empty each tick plans
+    # nothing and builds nothing (harmless). Set "enabled": false in config.json to stop.
+    - cron: "*/15 * * * *"
   workflow_dispatch:
     inputs:
       batch_size:
@@ -153,7 +158,20 @@ jobs:
             vulkan*)   dnf install -y vulkan-loader-devel vulkan-headers glslang || echo "::warning::vulkan deps failed" ;;
             opencl*)   dnf install -y ocl-icd-devel opencl-headers || echo "::warning::opencl deps failed" ;;
             clblast*)  dnf install -y epel-release && dnf install -y clblast-devel || echo "::warning::clblast unavailable, build may fail" ;;
-            mkl*)      echo "MKL: relying on llama.cpp's own BLAS fallback if Intel repo absent" ;;
+            mkl*)
+              # Intel MKL isn't in base/EPEL — add Intel's oneAPI repo and install it.
+              # ~2GB, so mkl jobs are slower, but they then have a real BLAS to link.
+              tee /etc/yum.repos.d/oneAPI.repo >/dev/null <<'REPO'
+          [oneAPI]
+          name=Intel oneAPI
+          baseurl=https://yum.repos.intel.com/oneapi
+          enabled=1
+          gpgcheck=1
+          repo_gpgcheck=1
+          gpgkey=https://yum.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB
+          REPO
+              dnf install -y intel-oneapi-mkl-devel || echo "::warning::MKL install failed — build will fail"
+              ;;
           esac
 
       # CUDA only: point cmake at the driver stub (container has no real libcuda.so).
@@ -223,6 +241,14 @@ jobs:
 
           export CMAKE_ARGS="$BACKEND $CPU"
           export CMAKE_BUILD_PARALLEL_LEVEL=$(nproc)
+
+          # MKL variants: source Intel's env so MKLROOT is set and cmake's Intel10_64lp
+          # vendor lookup succeeds. No-op for every other variant.
+          if [ -f /opt/intel/oneapi/setvars.sh ]; then
+            set +u; source /opt/intel/oneapi/setvars.sh >/dev/null 2>&1 || true; set -u
+            echo "MKLROOT=${MKLROOT:-unset}"
+          fi
+
           echo "variant: $V"
           echo "CMAKE_ARGS=$CMAKE_ARGS"
           cd /src && python -m build --wheel --outdir /out 2>&1 | tee /tmp/build.log
@@ -251,6 +277,9 @@ jobs:
             --plat manylinux_2_31_x86_64 \
             --exclude libcuda.so.1 --exclude libcudart.so.12 \
             --exclude libcublas.so.12 --exclude libcublasLt.so.12 \
+            --exclude libmkl_rt.so.2 --exclude libmkl_core.so.2 \
+            --exclude libmkl_intel_lp64.so.2 --exclude libmkl_intel_thread.so.2 \
+            --exclude libmkl_gnu_thread.so.2 --exclude libiomp5.so \
             --exclude libggml.so --exclude libggml-base.so --exclude libggml-cpu.so \
             --exclude libggml-cuda.so --exclude libllama.so --exclude libmtmd.so \
             -w /tmp/audited
