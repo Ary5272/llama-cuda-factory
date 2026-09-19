@@ -141,6 +141,15 @@ jobs:
             ccache-${{ matrix.kind }}-${{ matrix.variant }}-
             ccache-${{ matrix.kind }}-
 
+      # Cache the glslc binary (vulkan shader compiler, built from source below). Only the
+      # first vulkan job builds it (~10 min); every later vulkan job restores it instantly.
+      - name: Cache glslc (vulkan only)
+        if: startsWith(matrix.variant, 'vulkan')
+        uses: actions/cache@v4
+        with:
+          path: /tmp/glslc-bin
+          key: glslc-shaderc-v1
+
       # ---- tooling: two package managers, chosen by image ----
       - name: Build tooling (CUDA image, apt)
         if: matrix.kind == 'cuda'
@@ -171,16 +180,36 @@ jobs:
           case "${{ matrix.variant }}" in
             openblas*) dnf install -y openblas-devel || echo "::warning::openblas-devel failed" ;;
             vulkan*)
-              dnf install -y epel-release || true
-              # Vulkan needs the loader, headers, AND a shader compiler (glslc). glslang alone
-              # doesn't provide glslc — vulkan-tools / glslc do.
-              dnf install -y vulkan-loader-devel vulkan-headers glslc glslang vulkan-tools \
-                || echo "::warning::vulkan deps incomplete — build may fail on glslc" ;;
+              # EPEL via direct RPM — gets vulkan-loader-devel + vulkan-headers.
+              dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm || true
+              dnf install -y vulkan-loader-devel vulkan-headers || echo "::warning::vulkan loader/headers failed"
+              # glslc isn't in any dnf repo and prebuilt downloads are unreliable, so build it
+              # from shaderc source. Cached (see 'Cache glslc' step) so only the first vulkan
+              # job pays the ~10 min; later jobs restore the binary.
+              if [ -f /tmp/glslc-bin/glslc ]; then
+                cp /tmp/glslc-bin/glslc /usr/local/bin/glslc && chmod +x /usr/local/bin/glslc
+                echo "glslc restored from cache"
+              else
+                git clone --depth 1 https://github.com/google/shaderc /tmp/shaderc
+                ( cd /tmp/shaderc && ./utils/git-sync-deps \
+                  && cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DSHADERC_SKIP_TESTS=ON \
+                  && ninja -C build glslc_exe )
+                if [ -f /tmp/shaderc/build/glslc/glslc ]; then
+                  mkdir -p /tmp/glslc-bin
+                  cp /tmp/shaderc/build/glslc/glslc /tmp/glslc-bin/glslc
+                  cp /tmp/shaderc/build/glslc/glslc /usr/local/bin/glslc
+                  echo "glslc built from source"
+                else
+                  echo "::warning::glslc build failed — vulkan will fail"
+                fi
+              fi
+              glslc --version 2>/dev/null | head -1 || echo "::warning::glslc not runnable"
+              ;;
             opencl*)
-              dnf install -y epel-release || true
+              dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm || true
               dnf install -y ocl-icd-devel opencl-headers || echo "::warning::opencl deps failed" ;;
             clblast*)
-              dnf install -y epel-release || true
+              dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm || true
               dnf install -y clblast-devel || echo "::warning::clblast unavailable" ;;
             sycl*)
               # SYCL builds with Intel's DPC++ compiler (icpx), from the SAME oneAPI repo we
