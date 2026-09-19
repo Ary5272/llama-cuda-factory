@@ -388,20 +388,28 @@ jobs:
 
           AUD=$(ls /tmp/audited/*.whl)
           python - "$AUD" <<'PY'
-          import sys, zipfile, os, shutil, hashlib, base64, csv
+          import sys, zipfile, os, shutil, hashlib, base64, csv, re
           src = sys.argv[1]; work = "/tmp/deduped_tree"
           if os.path.exists(work): shutil.rmtree(work)
           os.makedirs(work)
           with zipfile.ZipFile(src) as z: z.extractall(work)
-          VENDORED = ("libggml", "libllama", "libmtmd")
-          is_dupe = lambda f: any(f.startswith(v) for v in VENDORED)
+          # Only the CORE libs are true duplicates of what's vendored in llama_cpp/lib/.
+          # Match EXACT names (allowing auditwheel's -HASH suffix), NOT a prefix — otherwise
+          # backend libs like libggml-opencl / libggml-vulkan / libggml-sycl (which are
+          # distinct and REQUIRED) get deleted and the wheel won't import.
+          CORE = ("libggml", "libggml-base", "libggml-cpu", "libllama", "libmtmd")
+          def is_core_dupe(fname):
+              # strip .so... and auditwheel's -<hash> suffix, then compare to CORE exactly
+              stem = re.sub(r'-[0-9a-f]{6,}', '', fname)      # drop -HASH
+              stem = stem.split('.so')[0]                     # drop .so / .so.0 / .so.0.0.0
+              return stem in CORE
           top = os.path.join(work, "lib")
           if os.path.isdir(top): shutil.rmtree(top); print("removed redundant lib/")
           auditlibs = os.path.join(work, "llama_cpp_python.libs")
           if os.path.isdir(auditlibs):
               for f in os.listdir(auditlibs):
-                  if is_dupe(f): os.remove(os.path.join(auditlibs, f)); print("dropped dupe", f)
-                  else: print("kept real dep", f)
+                  if is_core_dupe(f): os.remove(os.path.join(auditlibs, f)); print("dropped core dupe", f)
+                  else: print("kept", f)
               if not os.listdir(auditlibs): os.rmdir(auditlibs)
           distinfo = [n for n in os.listdir(work) if n.endswith(".dist-info")][0]
           rows = []
