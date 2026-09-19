@@ -2,10 +2,10 @@
 
 Regenerated every run. Do not edit — change `config.json`.
 
-`[######...................]` **284 / 1148** (24.7%)
+`[######...................]` **286 / 1148** (24.9%)
 
-- built: **284**
-- remaining: **864**  (548 CPU, 316 CUDA)
+- built: **286**
+- remaining: **862**  (546 CPU, 316 CUDA)
 - blocked: **0**
 
 ## Range
@@ -17,8 +17,6 @@ Regenerated every run. Do not edit — change `config.json`.
 
 ## Next batch (20)
 
-- `llama_cpp_python-0.3.19+clblast-cp38-cp38-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.19+clblast-cp39-cp39-manylinux_2_31_x86_64.whl`
 - `llama_cpp_python-0.3.19+mkl_avx-cp310-cp310-manylinux_2_31_x86_64.whl`
 - `llama_cpp_python-0.3.19+mkl_avx-cp311-cp311-manylinux_2_31_x86_64.whl`
 - `llama_cpp_python-0.3.19+mkl_avx-cp312-cp312-manylinux_2_31_x86_64.whl`
@@ -37,13 +35,13 @@ Regenerated every run. Do not edit — change `config.json`.
 - `llama_cpp_python-0.3.19+mkl_avx2_fma_f16c_avxvnni-cp311-cp311-manylinux_2_31_x86_64.whl`
 - `llama_cpp_python-0.3.19+mkl_avx2_fma_f16c_avxvnni-cp312-cp312-manylinux_2_31_x86_64.whl`
 - `llama_cpp_python-0.3.19+mkl_avx2_fma_f16c_avxvnni-cp313-cp313-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.19+mkl_avx2_fma_f16c_avxvnni-cp314-cp314-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.19+mkl_avx2_fma_f16c_avxvnni-cp38-cp38-manylinux_2_31_x86_64.whl`
 
-## Still queued (844)
+## Still queued (842)
 
 <details><summary>show</summary>
 
-- `llama_cpp_python-0.3.19+mkl_avx2_fma_f16c_avxvnni-cp314-cp314-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.19+mkl_avx2_fma_f16c_avxvnni-cp38-cp38-manylinux_2_31_x86_64.whl`
 - `llama_cpp_python-0.3.19+mkl_avx2_fma_f16c_avxvnni-cp39-cp39-manylinux_2_31_x86_64.whl`
 - `llama_cpp_python-0.3.19+mkl_avx512_fma_f16c-cp310-cp310-manylinux_2_31_x86_64.whl`
 - `llama_cpp_python-0.3.19+mkl_avx512_fma_f16c-cp311-cp311-manylinux_2_31_x86_64.whl`
@@ -442,6 +440,8 @@ Regenerated every run. Do not edit — change `config.json`.
 - `llama_cpp_python-0.3.18+sycl-cp312-cp312-manylinux_2_31_x86_64.whl`
 - `llama_cpp_python-0.3.18+sycl-cp313-cp313-manylinux_2_31_x86_64.whl`
 - `llama_cpp_python-0.3.18+sycl-cp314-cp314-manylinux_2_31_x86_64.whl`
-- _...and 444 more_
+- `llama_cpp_python-0.3.18+sycl-cp38-cp38-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.18+sycl-cp39-cp39-manylinux_2_31_x86_64.whl`
+- _...and 442 more_
 
 </details>
