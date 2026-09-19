@@ -1,0 +1,43 @@
+name: Delete broken MKL wheels
+
+# One-off cleanup: removes the ~948 original +mkl_* wheels that were built with MKL
+# EXCLUDED (~3-6 MB) and can't import. Run from the Actions tab.
+#
+#   dry_run = true  (default) -> lists what would be deleted, deletes nothing
+#   dry_run = false           -> actually deletes them
+#
+# Uses the HF_TOKEN repo secret. Safe: only touches +mkl wheels under 50 MB, and a working
+# bundled MKL wheel is >100 MB, so it physically cannot catch a good one.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Preview only (leave true to see the list first)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  delete:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install "huggingface_hub>=0.28"
+
+      - name: Run deletion (${{ github.event.inputs.dry_run == 'false' && 'LIVE' || 'dry run' }})
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          if [ "${{ github.event.inputs.dry_run }}" = "false" ]; then
+            python delete_broken_mkl.py --confirm
+          else
+            python delete_broken_mkl.py
+          fi
