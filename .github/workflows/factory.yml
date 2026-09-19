@@ -190,14 +190,15 @@ jobs:
                 cp /tmp/glslc-bin/glslc /usr/local/bin/glslc && chmod +x /usr/local/bin/glslc
                 echo "glslc restored from cache"
               else
-                # Build glslc from shaderc. This step runs before the Python/ninja step, so
-                # install ninja here and point cmake at the gcc-toolset-14 compiler explicitly
-                # (it's not on the default PATH yet). Use 'cmake --build' (not -G Ninja) so it
-                # works regardless of generator availability.
-                dnf install -y ninja-build || pip install ninja || true
+                # Build glslc from shaderc. Use pip's modern ninja (EL8's dnf ninja-build is
+                # 1.8.2, which has the 'multiple outputs' depslog bug that later breaks the
+                # Vulkan wheel build). Point cmake at gcc-toolset-14 explicitly (not on PATH yet).
+                pip install ninja >/dev/null 2>&1 || true
+                NINJA=$(command -v ninja || echo ninja)
                 git clone --depth 1 https://github.com/google/shaderc /tmp/shaderc
                 ( cd /tmp/shaderc && ./utils/git-sync-deps \
-                  && cmake -B build \
+                  && cmake -B build -G Ninja \
+                       -DCMAKE_MAKE_PROGRAM="$NINJA" \
                        -DCMAKE_BUILD_TYPE=Release \
                        -DSHADERC_SKIP_TESTS=ON \
                        -DSHADERC_SKIP_EXAMPLES=ON \
@@ -328,6 +329,12 @@ jobs:
 
           export CMAKE_ARGS="$BACKEND $CPU"
           export CMAKE_BUILD_PARALLEL_LEVEL=$(nproc)
+
+          # Force the modern ninja (from the build venv / pip, 1.11+). EL8's dnf ninja-build is
+          # 1.8.2 and hits 'multiple outputs aren't supported by depslog' on Vulkan's shader
+          # rules. Whichever ninja is on PATH here is the pip one; pin it so nothing shadows it.
+          NINJA_BIN=$(command -v ninja || true)
+          [ -n "$NINJA_BIN" ] && export CMAKE_ARGS="$CMAKE_ARGS -DCMAKE_MAKE_PROGRAM=$NINJA_BIN"
 
           # Use the persisted ccache. GGML_CCACHE is on by default but warned "not found"
           # before; now ccache is installed and pointed at the cached dir.
