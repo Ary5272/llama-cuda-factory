@@ -386,51 +386,14 @@ jobs:
             --exclude libggml-cuda.so --exclude libllama.so --exclude libmtmd.so \
             -w /tmp/audited
 
-          AUD=$(ls /tmp/audited/*.whl)
-          python - "$AUD" <<'PY'
-          import sys, zipfile, os, shutil, hashlib, base64, csv, re
-          src = sys.argv[1]; work = "/tmp/deduped_tree"
-          if os.path.exists(work): shutil.rmtree(work)
-          os.makedirs(work)
-          with zipfile.ZipFile(src) as z: z.extractall(work)
-          # Only the CORE libs are true duplicates of what's vendored in llama_cpp/lib/.
-          # Match EXACT names (allowing auditwheel's -HASH suffix), NOT a prefix — otherwise
-          # backend libs like libggml-opencl / libggml-vulkan / libggml-sycl (which are
-          # distinct and REQUIRED) get deleted and the wheel won't import.
-          CORE = ("libggml", "libggml-base", "libggml-cpu", "libllama", "libmtmd")
-          def is_core_dupe(fname):
-              # strip .so... and auditwheel's -<hash> suffix, then compare to CORE exactly
-              stem = re.sub(r'-[0-9a-f]{6,}', '', fname)      # drop -HASH
-              stem = stem.split('.so')[0]                     # drop .so / .so.0 / .so.0.0.0
-              return stem in CORE
-          top = os.path.join(work, "lib")
-          if os.path.isdir(top): shutil.rmtree(top); print("removed redundant lib/")
-          auditlibs = os.path.join(work, "llama_cpp_python.libs")
-          if os.path.isdir(auditlibs):
-              for f in os.listdir(auditlibs):
-                  if is_core_dupe(f): os.remove(os.path.join(auditlibs, f)); print("dropped core dupe", f)
-                  else: print("kept", f)
-              if not os.listdir(auditlibs): os.rmdir(auditlibs)
-          distinfo = [n for n in os.listdir(work) if n.endswith(".dist-info")][0]
-          rows = []
-          for root, _, files in os.walk(work):
-              for f in files:
-                  full = os.path.join(root, f); rel = os.path.relpath(full, work).replace(os.sep, "/")
-                  if rel.endswith("RECORD"): rows.append((rel, "", "")); continue
-                  data = open(full, "rb").read()
-                  h = base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b"=").decode()
-                  rows.append((rel, f"sha256={h}", str(len(data))))
-          with open(os.path.join(work, distinfo, "RECORD"), "w", newline="") as fh:
-              csv.writer(fh).writerows(rows)
-          out = "/tmp/deduped"; os.makedirs(out, exist_ok=True)
-          base = os.path.basename(src)
-          shutil.make_archive(os.path.join(out, base[:-4]), "zip", work)
-          os.rename(os.path.join(out, base[:-4] + ".zip"), os.path.join(out, base))
-          print("deduped:", os.path.join(out, base))
-          PY
-
+          # NO dedupe. auditwheel's repaired wheel is already correct and self-contained:
+          # libllama is patched to depend on the versioned, hashed libs in
+          # llama_cpp_python.libs/ via RUNPATH. Deleting anything from there breaks that link
+          # (it broke every GPU backend at import). There's some duplication with
+          # llama_cpp/lib/ — accepted; a working wheel beats a smaller broken one, and there's
+          # 8.7 TB of space. Just fix the name and go.
           mkdir -p /repaired
-          FIXED=$(python "$GITHUB_WORKSPACE/fix_wheel_name.py" /tmp/deduped/*.whl /repaired)
+          FIXED=$(python "$GITHUB_WORKSPACE/fix_wheel_name.py" /tmp/audited/*.whl /repaired)
           echo "final: $FIXED"
           echo "FINAL SIZE: $(du -h /repaired/*.whl | cut -f1)"
 
