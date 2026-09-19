@@ -207,7 +207,15 @@ jobs:
               ;;
             opencl*)
               dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm || true
-              dnf install -y ocl-icd-devel opencl-headers || echo "::warning::opencl deps failed" ;;
+              # ocl-icd-devel gives the ICD loader (libOpenCL.so). But EPEL's opencl-headers
+              # are OpenCL 2.2-era, and llama.cpp needs 3.0 symbols (CL_DEVICE_OPENCL_C_ALL_VERSIONS
+              # etc). Pull the canonical 3.0 headers from Khronos — header-only, no build.
+              dnf install -y ocl-icd-devel || echo "::warning::ocl-icd-devel failed"
+              git clone --depth 1 https://github.com/KhronosGroup/OpenCL-Headers /tmp/ocl-headers \
+                && cp -r /tmp/ocl-headers/CL /usr/include/ \
+                && echo "OpenCL 3.0 headers installed" \
+                || echo "::warning::OpenCL 3.0 headers failed"
+              ;;
             clblast*)
               dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm || true
               dnf install -y clblast-devel || echo "::warning::clblast unavailable" ;;
