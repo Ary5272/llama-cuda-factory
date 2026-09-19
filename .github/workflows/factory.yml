@@ -298,8 +298,16 @@ jobs:
       - name: Sanity-check the wheel imports
         run: |
           export PATH="$HOME/.local/bin:$PATH"
+          # The wheel is tagged manylinux_2_31 (to match the dataset), but this build image is
+          # manylinux_2_28 (glibc 2.28) — older than the wheel's floor — so a normal install
+          # refuses it on platform grounds, even though it runs fine on any real 2.31+ system.
+          # --python-platform tells uv to resolve as if on a 2_31 host (matching the wheel), so
+          # the install succeeds and pulls numpy et al, and the import genuinely exercises the
+          # compiled .so.
           uv venv --python ${{ matrix.python }} /tmp/checkenv
-          VIRTUAL_ENV=/tmp/checkenv uv pip install --quiet /repaired/*.whl
+          uv pip install --python /tmp/checkenv/bin/python \
+            --python-platform x86_64-manylinux_2_31 \
+            --quiet /repaired/*.whl
           /tmp/checkenv/bin/python -c "import llama_cpp; print('import OK', llama_cpp.__version__)"
 
       - name: Check the name came out right
@@ -339,9 +347,9 @@ jobs:
       # ---- FAILURE LOGGING: on any failure above, write the log tail to the repo ----
       - name: Record failure to repo
         if: failure()
+        continue-on-error: true
         run: |
-          # Runs only when an earlier step failed. Captures the build log tail + a short
-          # reason and commits it to failures/<wheel>.txt so it can be read from the repo.
+          # Best-effort: never let this step itself fail the job (it already failed above).
           mkdir -p failures
           OUT="failures/${{ matrix.name }}.txt"
           {
@@ -351,15 +359,19 @@ jobs:
             echo "time: $(date -u)"
             echo ""
             echo "=== build log tail (last 60 lines) ==="
-            tail -n 60 /tmp/build.log 2>/dev/null || echo "(no /tmp/build.log — failed before compile)"
+            tail -n 60 /tmp/build.log 2>/dev/null || echo "(no /tmp/build.log — failed before or during compile)"
           } > "$OUT"
 
-          # Commit just this file. Pull --rebase first so parallel failing jobs don't clobber.
           git config user.name  "factory[bot]"
           git config user.email "factory@users.noreply.github.com"
-          git add "$OUT"
+          # Resolve the branch: github.ref_name, or fall back to the default branch.
+          BRANCH="${{ github.ref_name }}"
+          [ -z "$BRANCH" ] && BRANCH="main"
+          git add "$OUT" || exit 0
           git commit -m "failure log: ${{ matrix.name }} [skip ci]" || exit 0
-          for i in 1 2 3 4 5; do
-            git pull --rebase --autostash origin ${{ github.ref_name }} && git push && break
-            echo "retry push $i"; sleep $((RANDOM % 5 + 2))
+          for i in 1 2 3 4 5 6; do
+            if git pull --rebase --autostash origin "$BRANCH" 2>/dev/null && git push origin HEAD:"$BRANCH" 2>/dev/null; then
+              echo "failure log pushed"; break
+            fi
+            echo "retry push $i"; sleep $((RANDOM % 6 + 2))
           done
