@@ -190,14 +190,25 @@ jobs:
                 cp /tmp/glslc-bin/glslc /usr/local/bin/glslc && chmod +x /usr/local/bin/glslc
                 echo "glslc restored from cache"
               else
+                # Build glslc from shaderc. This step runs before the Python/ninja step, so
+                # install ninja here and point cmake at the gcc-toolset-14 compiler explicitly
+                # (it's not on the default PATH yet). Use 'cmake --build' (not -G Ninja) so it
+                # works regardless of generator availability.
+                dnf install -y ninja-build || pip install ninja || true
                 git clone --depth 1 https://github.com/google/shaderc /tmp/shaderc
                 ( cd /tmp/shaderc && ./utils/git-sync-deps \
-                  && cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DSHADERC_SKIP_TESTS=ON \
-                  && ninja -C build glslc_exe )
-                if [ -f /tmp/shaderc/build/glslc/glslc ]; then
+                  && cmake -B build \
+                       -DCMAKE_BUILD_TYPE=Release \
+                       -DSHADERC_SKIP_TESTS=ON \
+                       -DSHADERC_SKIP_EXAMPLES=ON \
+                       -DCMAKE_C_COMPILER=/opt/rh/gcc-toolset-14/root/usr/bin/gcc \
+                       -DCMAKE_CXX_COMPILER=/opt/rh/gcc-toolset-14/root/usr/bin/g++ \
+                  && cmake --build build --target glslc_exe -j "$(nproc)" )
+                GLSLC=$(find /tmp/shaderc/build -name glslc -type f | head -1)
+                if [ -n "$GLSLC" ]; then
                   mkdir -p /tmp/glslc-bin
-                  cp /tmp/shaderc/build/glslc/glslc /tmp/glslc-bin/glslc
-                  cp /tmp/shaderc/build/glslc/glslc /usr/local/bin/glslc
+                  cp "$GLSLC" /tmp/glslc-bin/glslc
+                  cp "$GLSLC" /usr/local/bin/glslc
                   echo "glslc built from source"
                 else
                   echo "::warning::glslc build failed — vulkan will fail"
