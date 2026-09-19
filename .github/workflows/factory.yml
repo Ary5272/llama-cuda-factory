@@ -273,11 +273,15 @@ jobs:
           fi
           echo "wheel lib dir: $LIBDIR"
 
+          # MKL note: unlike CUDA (excluded, because users install the CUDA toolkit), MKL is
+          # NOT a standard user install — so it must be BUNDLED or the wheel can't import.
+          # We therefore DON'T exclude libmkl/libiomp5; auditwheel packs them in. This makes
+          # mkl wheels large (~150-400MB) but self-contained and actually working. The
+          # original dataset's mkl wheels were ~4MB (excluded) and silently broken.
           LD_LIBRARY_PATH="$LIBDIR:$LD_LIBRARY_PATH" auditwheel repair "$RAW" \
             --plat manylinux_2_31_x86_64 \
             --exclude libcuda.so.1 --exclude libcudart.so.12 \
             --exclude libcublas.so.12 --exclude libcublasLt.so.12 \
-            --exclude 'libmkl*' --exclude 'libiomp5*' \
             --exclude libggml.so --exclude libggml-base.so --exclude libggml-cpu.so \
             --exclude libggml-cuda.so --exclude libllama.so --exclude libmtmd.so \
             -w /tmp/audited
