@@ -278,7 +278,18 @@ jobs:
           # We therefore DON'T exclude libmkl/libiomp5; auditwheel packs them in. This makes
           # mkl wheels large (~150-400MB) but self-contained and actually working. The
           # original dataset's mkl wheels were ~4MB (excluded) and silently broken.
-          LD_LIBRARY_PATH="$LIBDIR:$LD_LIBRARY_PATH" auditwheel repair "$RAW" \
+          # auditwheel needs the MKL libs on its search path to find and copy them — they
+          # live in Intel's oneAPI dirs, not a standard location. Add whichever exist.
+          MKL_PATHS=""
+          for d in /opt/intel/oneapi/mkl/latest/lib \
+                   /opt/intel/oneapi/mkl/latest/lib/intel64 \
+                   /opt/intel/oneapi/compiler/latest/lib \
+                   /opt/intel/oneapi/compiler/latest/linux/compiler/lib/intel64_lin; do
+            [ -d "$d" ] && MKL_PATHS="$d:$MKL_PATHS"
+          done
+          [ -n "$MKL_PATHS" ] && echo "MKL lib paths: $MKL_PATHS"
+
+          LD_LIBRARY_PATH="$LIBDIR:$MKL_PATHS$LD_LIBRARY_PATH" auditwheel repair "$RAW" \
             --plat manylinux_2_31_x86_64 \
             --exclude libcuda.so.1 --exclude libcudart.so.12 \
             --exclude libcublas.so.12 --exclude libcublasLt.so.12 \
