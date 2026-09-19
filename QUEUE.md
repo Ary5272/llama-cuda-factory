@@ -2,10 +2,10 @@
 
 Regenerated every run. Do not edit — change `config.json`.
 
-`[######...................]` **286 / 1148** (24.9%)
+`[#####....................]` **230 / 1148** (20.0%)
 
-- built: **286**
-- remaining: **862**  (546 CPU, 316 CUDA)
+- built: **230**
+- remaining: **918**  (602 CPU, 316 CUDA)
 - blocked: **0**
 
 ## Range
@@ -38,7 +38,7 @@ Regenerated every run. Do not edit — change `config.json`.
 - `llama_cpp_python-0.3.19+mkl_avx2_fma_f16c_avxvnni-cp314-cp314-manylinux_2_31_x86_64.whl`
 - `llama_cpp_python-0.3.19+mkl_avx2_fma_f16c_avxvnni-cp38-cp38-manylinux_2_31_x86_64.whl`
 
-## Still queued (842)
+## Still queued (898)
 
 <details><summary>show</summary>
 
@@ -442,6 +442,6 @@ Regenerated every run. Do not edit — change `config.json`.
 - `llama_cpp_python-0.3.18+sycl-cp314-cp314-manylinux_2_31_x86_64.whl`
 - `llama_cpp_python-0.3.18+sycl-cp38-cp38-manylinux_2_31_x86_64.whl`
 - `llama_cpp_python-0.3.18+sycl-cp39-cp39-manylinux_2_31_x86_64.whl`
-- _...and 442 more_
+- _...and 498 more_
 
 </details>
