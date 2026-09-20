@@ -190,15 +190,18 @@ jobs:
                 cp /tmp/glslc-bin/glslc /usr/local/bin/glslc && chmod +x /usr/local/bin/glslc
                 echo "glslc restored from cache"
               else
-                # Build glslc from shaderc. Use pip's modern ninja (EL8's dnf ninja-build is
-                # 1.8.2, which has the 'multiple outputs' depslog bug that later breaks the
-                # Vulkan wheel build). Point cmake at gcc-toolset-14 explicitly (not on PATH yet).
-                pip install ninja >/dev/null 2>&1 || true
-                NINJA=$(command -v ninja || echo ninja)
+                # Build glslc from shaderc with a MODERN ninja. The build venv isn't active
+                # yet here, and EL8's dnf ninja is 1.8.2 (breaks Vulkan later), so fetch the
+                # official prebuilt ninja 1.12 binary to a system path. Point cmake at
+                # gcc-toolset-14 explicitly (not on PATH yet).
+                curl -sL https://github.com/ninja-build/ninja/releases/download/v1.12.1/ninja-linux.zip -o /tmp/ninja.zip \
+                  && (cd /usr/local/bin && python3 -c "import zipfile; zipfile.ZipFile('/tmp/ninja.zip').extractall()") \
+                  && chmod +x /usr/local/bin/ninja
+                ninja --version || echo "::warning::ninja not available for shaderc"
                 git clone --depth 1 https://github.com/google/shaderc /tmp/shaderc
                 ( cd /tmp/shaderc && ./utils/git-sync-deps \
                   && cmake -B build -G Ninja \
-                       -DCMAKE_MAKE_PROGRAM="$NINJA" \
+                       -DCMAKE_MAKE_PROGRAM=/usr/local/bin/ninja \
                        -DCMAKE_BUILD_TYPE=Release \
                        -DSHADERC_SKIP_TESTS=ON \
                        -DSHADERC_SKIP_EXAMPLES=ON \
@@ -330,10 +333,11 @@ jobs:
           export CMAKE_ARGS="$BACKEND $CPU"
           export CMAKE_BUILD_PARALLEL_LEVEL=$(nproc)
 
-          # Force the modern ninja (from the build venv / pip, 1.11+). EL8's dnf ninja-build is
-          # 1.8.2 and hits 'multiple outputs aren't supported by depslog' on Vulkan's shader
-          # rules. Whichever ninja is on PATH here is the pip one; pin it so nothing shadows it.
-          NINJA_BIN=$(command -v ninja || true)
+          # Force a modern ninja. EL8's dnf ninja is 1.8.2 (breaks Vulkan's multi-output
+          # shader rules). We installed ninja 1.12 to /usr/local/bin for the shaderc build;
+          # prefer it, else fall back to whatever's on PATH (the venv's pip ninja).
+          NINJA_BIN=/usr/local/bin/ninja
+          [ -x "$NINJA_BIN" ] || NINJA_BIN=$(command -v ninja || true)
           [ -n "$NINJA_BIN" ] && export CMAKE_ARGS="$CMAKE_ARGS -DCMAKE_MAKE_PROGRAM=$NINJA_BIN"
 
           # Use the persisted ccache. GGML_CCACHE is on by default but warned "not found"
@@ -391,8 +395,15 @@ jobs:
           for d in /opt/intel/oneapi/mkl/latest/lib \
                    /opt/intel/oneapi/mkl/latest/lib/intel64 \
                    /opt/intel/oneapi/compiler/latest/lib \
-                   /opt/intel/oneapi/compiler/latest/linux/compiler/lib/intel64_lin; do
+                   /opt/intel/oneapi/compiler/latest/linux/compiler/lib/intel64_lin \
+                   /opt/intel/oneapi/tbb/latest/lib/intel64/gcc4.8 \
+                   /opt/intel/oneapi/tbb/latest/lib \
+                   /opt/intel/oneapi/tbb/latest/lib/intel64; do
             [ -d "$d" ] && INTEL_PATHS="$d:$INTEL_PATHS"
+          done
+          # Also sweep for any libtbb / libsycl the compiler dropped elsewhere under oneapi.
+          for extra in $(find /opt/intel/oneapi -name 'libtbb.so*' -o -name 'libsycl.so*' 2>/dev/null | xargs -r -n1 dirname | sort -u); do
+            INTEL_PATHS="$extra:$INTEL_PATHS"
           done
           [ -n "$INTEL_PATHS" ] && echo "Intel lib paths: $INTEL_PATHS"
 
