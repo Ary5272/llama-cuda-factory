@@ -327,7 +327,7 @@ jobs:
             opencl*)   BACKEND="-DGGML_OPENCL=ON" ;;
             sycl*)     BACKEND="-DGGML_SYCL=ON -DGGML_SYCL_TARGET=INTEL -DCMAKE_C_COMPILER=icx -DCMAKE_CXX_COMPILER=icpx"; SYCL_BUILD=1 ;;
             rpc*)      BACKEND="-DGGML_RPC=ON" ;;
-            cu*)       BACKEND="-DGGML_CUDA=ON -DGGML_CUDA_FORCE_MMQ=ON -DCMAKE_CUDA_ARCHITECTURES=all -DCUDA_cuda_driver_LIBRARY=${CUDA_DRIVER_LIB}" ;;
+            cu*)       BACKEND="-DGGML_CUDA=ON -DGGML_CUDA_FORCE_MMQ=ON -DCMAKE_CUDA_ARCHITECTURES=50;52;60;61;70;75;80;86;89;90 -DCUDA_cuda_driver_LIBRARY=${CUDA_DRIVER_LIB}" ;;
           esac
 
           export CMAKE_ARGS="$BACKEND $CPU"
