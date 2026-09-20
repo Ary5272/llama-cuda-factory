@@ -27,7 +27,7 @@ on:
   workflow_dispatch:
     inputs:
       batch_size:
-        description: "Wheels this run (20 run in parallel on Free; extra queue behind them)"
+        description: "Wheels this run (keep <=60; HF limits commits to 128/hour)"
         default: "40"
       dry_run:
         description: "Plan only — build nothing"
@@ -462,17 +462,31 @@ jobs:
           . /opt/buildvenv/bin/activate
           uv pip install "huggingface_hub>=0.28"
           python - <<'PY'
-          import os, glob
+          import os, glob, time
           from huggingface_hub import HfApi
+          from huggingface_hub.errors import HfHubHTTPError
           token = os.environ.get("HF_TOKEN")
           if not token: raise SystemExit("HF_TOKEN secret not set")
           api = HfApi(token=token)
           for path in glob.glob("/repaired/*.whl"):
               name = os.path.basename(path)
-              api.upload_file(path_or_fileobj=path, path_in_repo=name,
-                              repo_id="AIencoder/llama-cpp-wheels", repo_type="dataset",
-                              commit_message=f"wheel: {name}")
-              print("uploaded", name)
+              # HF limits commits to 128/hour. On 429, wait and retry rather than failing the
+              # wheel — the file already uploaded, only the commit is throttled. Up to ~15 min
+              # of backoff, which clears the 300s rate window several times over.
+              for attempt in range(1, 11):
+                  try:
+                      api.upload_file(path_or_fileobj=path, path_in_repo=name,
+                                      repo_id="AIencoder/llama-cpp-wheels", repo_type="dataset",
+                                      commit_message=f"wheel: {name}")
+                      print("uploaded", name)
+                      break
+                  except HfHubHTTPError as e:
+                      if "429" in str(e) and attempt < 10:
+                          wait = min(90, 15 * attempt)
+                          print(f"rate limited on {name} (attempt {attempt}), waiting {wait}s")
+                          time.sleep(wait)
+                      else:
+                          raise
           PY
 
       # ---- FAILURE LOGGING: on any failure above, write the log tail to the repo ----
