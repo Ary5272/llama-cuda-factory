@@ -2,10 +2,10 @@
 
 Regenerated every run. Do not edit — change `config.json`.
 
-`[#################........]` **795 / 1148** (69.3%)
+`[#################........]` **815 / 1148** (71.0%)
 
-- built: **795**
-- remaining: **353**  (205 CPU, 148 CUDA)
+- built: **815**
+- remaining: **333**  (185 CPU, 148 CUDA)
 - blocked: **0**
 
 ## Range
@@ -16,31 +16,6 @@ Regenerated every run. Do not edit — change `config.json`.
 - CUDA: 4 toolkit(s) x 3 baseline(s) = 336 wheels
 
 ## Next batch (20)
-
-- `llama_cpp_python-0.3.17+basic_avx_f16c-cp38-cp38-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.17+basic_avx_f16c-cp39-cp39-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.17+clblast-cp310-cp310-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.17+clblast-cp311-cp311-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.17+clblast-cp312-cp312-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.17+clblast-cp313-cp313-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.17+clblast-cp314-cp314-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.17+clblast-cp38-cp38-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.17+clblast-cp39-cp39-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.17+mkl_avx-cp310-cp310-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.17+mkl_avx-cp311-cp311-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.17+mkl_avx-cp312-cp312-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.17+mkl_avx-cp313-cp313-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.17+mkl_avx-cp314-cp314-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.17+mkl_avx-cp38-cp38-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.17+mkl_avx-cp39-cp39-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.17+mkl_avx2_fma_f16c-cp310-cp310-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.17+mkl_avx2_fma_f16c-cp311-cp311-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.17+mkl_avx2_fma_f16c-cp312-cp312-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.17+mkl_avx2_fma_f16c-cp313-cp313-manylinux_2_31_x86_64.whl`
-
-## Still queued (333)
-
-<details><summary>show</summary>
 
 - `llama_cpp_python-0.3.17+mkl_avx2_fma_f16c-cp314-cp314-manylinux_2_31_x86_64.whl`
 - `llama_cpp_python-0.3.17+mkl_avx2_fma_f16c-cp38-cp38-manylinux_2_31_x86_64.whl`
@@ -62,6 +37,11 @@ Regenerated every run. Do not edit — change `config.json`.
 - `llama_cpp_python-0.3.17+mkl_avx512_fma_f16c_vnni_vbmi-cp310-cp310-manylinux_2_31_x86_64.whl`
 - `llama_cpp_python-0.3.17+mkl_avx512_fma_f16c_vnni_vbmi-cp311-cp311-manylinux_2_31_x86_64.whl`
 - `llama_cpp_python-0.3.17+mkl_avx512_fma_f16c_vnni_vbmi-cp312-cp312-manylinux_2_31_x86_64.whl`
+
+## Still queued (313)
+
+<details><summary>show</summary>
+
 - `llama_cpp_python-0.3.17+mkl_avx512_fma_f16c_vnni_vbmi-cp313-cp313-manylinux_2_31_x86_64.whl`
 - `llama_cpp_python-0.3.17+mkl_avx512_fma_f16c_vnni_vbmi-cp314-cp314-manylinux_2_31_x86_64.whl`
 - `llama_cpp_python-0.3.17+mkl_avx512_fma_f16c_vnni_vbmi-cp38-cp38-manylinux_2_31_x86_64.whl`
