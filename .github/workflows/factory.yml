@@ -260,7 +260,24 @@ jobs:
           repo_gpgcheck=1
           gpgkey=https://yum.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB
           REPO
-              dnf install -y intel-oneapi-mkl-devel || echo "::warning::MKL install failed"
+              # Intel's repo is sometimes flaky (GPG/network). Try normally, then retry a few
+              # times, then as a last resort with gpgcheck off. If MKL still isn't installed,
+              # FAIL the step — so the wheel retries next run instead of dying at cmake with a
+              # confusing "BLAS not found". (This was silently continuing before.)
+              ok=""
+              for attempt in 1 2 3; do
+                if dnf install -y intel-oneapi-mkl-devel; then ok=1; break; fi
+                echo "MKL install attempt $attempt failed, retrying"; sleep 10
+              done
+              if [ -z "$ok" ]; then
+                dnf install -y --nogpgcheck intel-oneapi-mkl-devel && ok=1 || true
+              fi
+              # Verify MKL actually landed.
+              if [ -z "$ok" ] || [ ! -f /opt/intel/oneapi/setvars.sh ]; then
+                echo "::error::MKL failed to install — Intel repo unavailable. Wheel will retry next run."
+                exit 1
+              fi
+              echo "MKL installed"
               ;;
           esac
 
