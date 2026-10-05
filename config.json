@@ -58,5 +58,17 @@
     "avx2_fma_f16c",
     "avx512_fma_f16c"
   ],
-  "batch_size": 20
+  "batch_size": 20,
+  "windows_cuda_versions": [
+    "12.4.1",
+    "12.6.3",
+    "12.8.1"
+  ],
+  "windows_python_versions": [
+    "3.9",
+    "3.10",
+    "3.11",
+    "3.12",
+    "3.13"
+  ]
 }
