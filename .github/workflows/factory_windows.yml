@@ -37,7 +37,7 @@ permissions:
 jobs:
   build:
     runs-on: windows-2022
-    timeout-minutes: 120
+    timeout-minutes: 90
     steps:
       - name: Set up Python ${{ github.event.inputs.python }}
         uses: actions/setup-python@v5
@@ -78,10 +78,16 @@ jobs:
 
       - name: Build wheel
         env:
-          # all-major covers through Blackwell. FORCE_CUBLAS avoids ggml's custom kernels
-          # that break on sm_120 (RTX 50xx) — the known Windows CUDA issue.
-          CMAKE_ARGS: "-DGGML_CUDA=on -DGGML_CUDA_FORCE_CUBLAS=1 -DCMAKE_CUDA_ARCHITECTURES=all-major"
+          # CRITICAL: do NOT use all-major on Windows — MSVC compiles every arch serially
+          # per .cu file, and llama.cpp has hundreds of template-heavy ones. That caused a
+          # 19-hour build. Instead: a few common real archs + one virtual for forward-compat.
+          #   75 = Turing (RTX 20xx), 86 = Ampere (RTX 30xx), 89 = Ada (RTX 40xx)
+          #   90-virtual = PTX that JIT-compiles on Hopper/Blackwell at runtime
+          # FORCE_CUBLAS avoids ggml's custom kernels that break on sm_120.
+          CMAKE_ARGS: "-DGGML_CUDA=on -DGGML_CUDA_FORCE_CUBLAS=1 -DCMAKE_CUDA_ARCHITECTURES=75-real;86-real;89-real;90-virtual"
           FORCE_CMAKE: "1"
+          # Parallelize the build across all runner cores (the other half of the fix).
+          CMAKE_BUILD_PARALLEL_LEVEL: "4"
         run: |
           cd src
           python -m build --wheel --outdir ../dist
