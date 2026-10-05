@@ -1,0 +1,143 @@
+name: Factory (Windows CUDA)
+
+# Builds Windows x64 CUDA wheels of llama-cpp-python and pushes them to
+# AIencoder/llama-cpp-wheels. This is the gap nobody fills: upstream stopped shipping
+# Windows CUDA wheels at 0.3.4. Approach adapted from ThongvanAlexis/llama-cpp-python.
+#
+# SEPARATE from the Linux factory — different runner, toolchain (MSVC), and CUDA setup.
+# Start here with ONE wheel proven before scaling the matrix.
+#
+# EMERGENCY STOP: disable this workflow in the Actions tab, or set enabled:false logic
+# like the Linux one once it's proven.
+
+on:
+  workflow_dispatch:
+    inputs:
+      llama_version:
+        description: "llama-cpp-python git tag (e.g. v0.3.19)"
+        default: "v0.3.19"
+      cuda:
+        description: "CUDA toolkit version"
+        default: "12.4.1"
+        type: choice
+        options: ["12.4.1", "12.6.3", "12.8.1"]
+      python:
+        description: "Python version"
+        default: "3.11"
+        type: choice
+        options: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+      upload:
+        description: "Upload to the dataset"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 120
+    steps:
+      - name: Set up Python ${{ github.event.inputs.python }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ github.event.inputs.python }}
+
+      - name: Install CUDA toolkit ${{ github.event.inputs.cuda }}
+        uses: Jimver/cuda-toolkit@v0.2.19
+        id: cuda
+        with:
+          cuda: ${{ github.event.inputs.cuda }}
+          method: network
+          # Only the pieces needed to compile — keeps the install fast.
+          sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev", "thrust", "visual_studio_integration"]'
+
+      - name: Fetch llama-cpp-python ${{ github.event.inputs.llama_version }}
+        run: |
+          git clone --depth 1 --recursive --shallow-submodules `
+            --branch ${{ github.event.inputs.llama_version }} `
+            https://github.com/abetlen/llama-cpp-python.git src
+        shell: pwsh
+
+      - name: Build deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install build wheel ninja scikit-build-core
+        shell: pwsh
+
+      - name: Stamp local version
+        run: |
+          $cu = "${{ github.event.inputs.cuda }}".Split(".")[0..1] -join ""
+          $local = "cu$cu"
+          $f = "src/llama_cpp/__init__.py"
+          $cur = (Select-String -Path $f -Pattern '__version__\s*=\s*"([^"]+)"').Matches.Groups[1].Value
+          (Get-Content $f) -replace [regex]::Escape("__version__ = `"$cur`""), "__version__ = `"$cur+$local`"" | Set-Content $f
+          echo "building $cur+$local"
+        shell: pwsh
+
+      - name: Build wheel
+        env:
+          # all-major covers through Blackwell. FORCE_CUBLAS avoids ggml's custom kernels
+          # that break on sm_120 (RTX 50xx) — the known Windows CUDA issue.
+          CMAKE_ARGS: "-DGGML_CUDA=on -DGGML_CUDA_FORCE_CUBLAS=1 -DCMAKE_CUDA_ARCHITECTURES=all-major"
+          FORCE_CMAKE: "1"
+        run: |
+          cd src
+          python -m build --wheel --outdir ../dist
+        shell: pwsh
+
+      - name: Bundle CUDA DLLs into the wheel
+        run: |
+          # Windows wheels need the CUDA runtime DLLs inside them (no delvewheel on Windows).
+          # Unzip wheel, copy cudart/cublas DLLs next to the .pyd, rezip.
+          $wheel = Get-ChildItem dist/*.whl | Select-Object -First 1
+          Write-Host "wheel: $($wheel.Name)  size: $([math]::Round($wheel.Length/1MB,1)) MB"
+          $work = "wheelwork"; Remove-Item -Recurse -Force $work -ErrorAction Ignore
+          Expand-Archive -Path $wheel.FullName -DestinationPath $work
+          $libdir = "$work/llama_cpp/lib"
+          $cudabin = "${{ steps.cuda.outputs.CUDA_PATH }}/bin"
+          Get-ChildItem "$cudabin/cudart64_*.dll","$cudabin/cublas64_*.dll","$cudabin/cublasLt64_*.dll" -ErrorAction Ignore |
+            ForEach-Object { Copy-Item $_.FullName $libdir -Force; Write-Host "bundled $($_.Name)" }
+          Remove-Item $wheel.FullName
+          Compress-Archive -Path "$work/*" -DestinationPath "$($wheel.FullName).zip"
+          Move-Item "$($wheel.FullName).zip" $wheel.FullName
+          Write-Host "repacked: $([math]::Round((Get-Item $wheel.FullName).Length/1MB,1)) MB"
+        shell: pwsh
+
+      - name: Smoke-test the wheel
+        run: |
+          pip install (Get-ChildItem dist/*.whl | Select-Object -First 1).FullName
+          python -c "import llama_cpp; print('import OK', llama_cpp.__version__)"
+        shell: pwsh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-cuda-wheel
+          path: dist/*.whl
+
+      - name: Upload to the dataset
+        if: ${{ github.event.inputs.upload == 'true' }}
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          pip install "huggingface_hub>=0.28"
+          python -c @"
+          import os, glob, time
+          from huggingface_hub import HfApi
+          from huggingface_hub.errors import HfHubHTTPError
+          api = HfApi(token=os.environ['HF_TOKEN'])
+          for path in glob.glob('dist/*.whl'):
+              name = os.path.basename(path)
+              for attempt in range(1, 11):
+                  try:
+                      api.upload_file(path_or_fileobj=path, path_in_repo=name,
+                          repo_id='AIencoder/llama-cpp-wheels', repo_type='dataset',
+                          commit_message=f'Windows CUDA wheel: {name}')
+                      print('uploaded', name); break
+                  except HfHubHTTPError as e:
+                      if '429' in str(e) and attempt < 10:
+                          time.sleep(min(90, 15*attempt))
+                      else: raise
+          "@
+        shell: pwsh
