@@ -91,6 +91,25 @@ def build_targets(cfg):
             "cuda": cuda_v, "cpu": baseline,
         }
 
+    # ---- Windows CUDA wheels: product of (cuda_version) only ------------
+    # Windows wheels don't split by CPU-flag variant the way Linux does (they ship one
+    # generic MSVC build), so the only axis is CUDA version. Platform is win_amd64 and the
+    # local tag is just cuXXX. Windows Python wheels skip cp38/cp314 where upstream didn't
+    # provide them, so Windows uses its own python list if given.
+    win_pys = cfg.get("windows_python_versions", pythons)
+    for cuda_v, llama, python in itertools.product(
+        cfg.get("windows_cuda_versions", []), llamas, win_pys
+    ):
+        local = cuda_tag(cuda_v)
+        base = llama.lstrip("v")
+        tag = py_tag(python)
+        name = f"llama_cpp_python-{base}+{local}-{tag}-{tag}-win_amd64.whl"
+        targets[name] = {
+            "name": name, "kind": "windows_cuda", "variant": local,
+            "llama": llama, "python": python,
+            "cuda": cuda_v, "cpu": "",
+        }
+
     return targets
 
 
@@ -129,9 +148,18 @@ def main() -> int:
     existing = {f.split("/")[-1] for f in api.list_repo_files(dataset, repo_type="dataset")
                 if f.endswith(".whl")}
 
-    done = [n for n in target if n in existing]
-    todo = [n for n in target if n not in existing and n not in blocked]
-    skipped = [n for n in target if n in blocked and n not in existing]
+    # A workflow can restrict itself to certain wheel kinds via the KINDS env var
+    # (comma-separated), so the Linux factory builds cpu+cuda and the Windows factory
+    # builds windows_cuda — from the same planner, same dataset diff. Default: all kinds.
+    kinds = os.environ.get("KINDS", "")
+    allow = set(k.strip() for k in kinds.split(",") if k.strip()) if kinds else None
+
+    def in_scope(n):
+        return allow is None or target[n]["kind"] in allow
+
+    done = [n for n in target if n in existing and in_scope(n)]
+    todo = [n for n in target if n not in existing and n not in blocked and in_scope(n)]
+    skipped = [n for n in target if n in blocked and n not in existing and in_scope(n)]
 
     todo.sort(key=lambda n: sort_key(target[n]))
     batch = todo[:batch_size]
