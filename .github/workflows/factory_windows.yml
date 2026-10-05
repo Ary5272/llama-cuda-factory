@@ -1,104 +1,139 @@
 name: Factory (Windows CUDA)
 
-# Builds Windows x64 CUDA wheels of llama-cpp-python and pushes them to
-# AIencoder/llama-cpp-wheels. This is the gap nobody fills: upstream stopped shipping
-# Windows CUDA wheels at 0.3.4. Approach adapted from ThongvanAlexis/llama-cpp-python.
+# Matrix-driven Windows CUDA factory — same design as the Linux factory.yml, but builds
+# only the windows_cuda wheel kind (via KINDS=windows_cuda), on windows-2022 runners.
+# The planner (plan.py) computes the full Windows matrix, diffs against the dataset, and
+# dispatches the next batch. You pick batch_size; the cron grinds the rest.
 #
-# SEPARATE from the Linux factory — different runner, toolchain (MSVC), and CUDA setup.
-# Start here with ONE wheel proven before scaling the matrix.
-#
-# EMERGENCY STOP: disable this workflow in the Actions tab, or set enabled:false logic
-# like the Linux one once it's proven.
+# NOTE: Windows CUDA wheels are SLOW (~30-60 min each, MSVC+nvcc) and GitHub gives fewer
+# concurrent Windows runners than Linux. A batch of 40 may take hours of wall-clock. That's
+# fine for the cron; just not Linux speed.
 
 on:
+  schedule:
+    - cron: "30 */6 * * *"      # offset from the Linux cron
   workflow_dispatch:
     inputs:
-      llama_version:
-        description: "llama-cpp-python git tag (e.g. v0.3.19)"
-        default: "v0.3.19"
-      cuda:
-        description: "CUDA toolkit version"
-        default: "12.4.1"
-        type: choice
-        options: ["12.4.1", "12.6.3", "12.8.1"]
-      python:
-        description: "Python version"
-        default: "3.11"
-        type: choice
-        options: ["3.9", "3.10", "3.11", "3.12", "3.13"]
-      upload:
-        description: "Upload to the dataset"
+      batch_size:
+        description: "Windows CUDA wheels this run (type e.g. 40; they run slow)"
+        default: "20"
+      dry_run:
+        description: "Plan only — build nothing"
         type: boolean
         default: false
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: factory-windows
+  cancel-in-progress: false
 
 jobs:
+  # ---------------------------------------------------------------- plan
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      count: ${{ steps.plan.outputs.count || '0' }}
+      remaining: ${{ steps.plan.outputs.remaining }}
+      enabled: ${{ steps.gate.outputs.enabled }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Emergency stop check
+        id: gate
+        run: |
+          EN=$(python3 -c "import json; print(str(json.load(open('config.json')).get('enabled', True)).lower())")
+          echo "enabled=$EN" >> $GITHUB_OUTPUT
+      - uses: actions/setup-python@v5
+        if: steps.gate.outputs.enabled == 'true'
+        with:
+          python-version: "3.12"
+      - run: pip install "huggingface_hub>=0.28"
+        if: steps.gate.outputs.enabled == 'true'
+      - name: Plan (windows_cuda only)
+        id: plan
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          BATCH: ${{ github.event.inputs.batch_size || '20' }}
+          KINDS: windows_cuda
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python - <<'PY'
+          import json, os
+          cfg = json.load(open("config.json"))
+          cfg["batch_size"] = int(os.environ["BATCH"])
+          json.dump(cfg, open("config.json", "w"), indent=2)
+          PY
+          python plan.py
+      - name: Summary
+        run: |
+          echo "### Windows CUDA factory" >> $GITHUB_STEP_SUMMARY
+          echo "Dispatching **${{ steps.plan.outputs.count }}**, **${{ steps.plan.outputs.remaining }}** Windows CUDA wheels left." >> $GITHUB_STEP_SUMMARY
+
+  # --------------------------------------------------------------- build
   build:
+    needs: plan
+    if: >-
+      needs.plan.outputs.enabled == 'true' &&
+      needs.plan.outputs.count != '0' &&
+      github.event.inputs.dry_run != 'true'
     runs-on: windows-2022
     timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 5          # Windows runners are limited; don't over-queue
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+
     steps:
-      - name: Set up Python ${{ github.event.inputs.python }}
+      - name: Set up Python ${{ matrix.python }}
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ github.event.inputs.python }}
+          python-version: ${{ matrix.python }}
 
-      - name: Install CUDA toolkit ${{ github.event.inputs.cuda }}
+      - name: Install CUDA ${{ matrix.cuda }}
         uses: Jimver/cuda-toolkit@v0.2.19
         id: cuda
         with:
-          cuda: ${{ github.event.inputs.cuda }}
+          cuda: ${{ matrix.cuda }}
           method: network
-          # Only the pieces needed to compile — keeps the install fast.
           sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev", "thrust", "visual_studio_integration"]'
 
-      - name: Fetch llama-cpp-python ${{ github.event.inputs.llama_version }}
+      - name: Fetch ${{ matrix.llama }}
         run: |
           git clone --depth 1 --recursive --shallow-submodules `
-            --branch ${{ github.event.inputs.llama_version }} `
+            --branch ${{ matrix.llama }} `
             https://github.com/abetlen/llama-cpp-python.git src
         shell: pwsh
 
       - name: Build deps
         run: |
           python -m pip install --upgrade pip
-          pip install build wheel ninja scikit-build-core
+          pip install build wheel ninja scikit-build-core "huggingface_hub>=0.28"
         shell: pwsh
 
-      - name: Stamp local version
+      - name: Stamp local version (${{ matrix.variant }})
         run: |
-          $cu = "${{ github.event.inputs.cuda }}".Split(".")[0..1] -join ""
-          $local = "cu$cu"
           $f = "src/llama_cpp/__init__.py"
           $cur = (Select-String -Path $f -Pattern '__version__\s*=\s*"([^"]+)"').Matches.Groups[1].Value
-          (Get-Content $f) -replace [regex]::Escape("__version__ = `"$cur`""), "__version__ = `"$cur+$local`"" | Set-Content $f
-          echo "building $cur+$local"
+          (Get-Content $f) -replace [regex]::Escape("__version__ = `"$cur`""), "__version__ = `"$cur+${{ matrix.variant }}`"" | Set-Content $f
+          echo "building $cur+${{ matrix.variant }}"
         shell: pwsh
 
       - name: Build wheel
         env:
-          # CRITICAL: do NOT use all-major on Windows — MSVC compiles every arch serially
-          # per .cu file, and llama.cpp has hundreds of template-heavy ones. That caused a
-          # 19-hour build. Instead: a few common real archs + one virtual for forward-compat.
-          #   75 = Turing (RTX 20xx), 86 = Ampere (RTX 30xx), 89 = Ada (RTX 40xx)
-          #   90-virtual = PTX that JIT-compiles on Hopper/Blackwell at runtime
-          # FORCE_CUBLAS avoids ggml's custom kernels that break on sm_120.
+          # Trimmed arch list + parallelism — all-major caused a 19h build.
           CMAKE_ARGS: "-DGGML_CUDA=on -DGGML_CUDA_FORCE_CUBLAS=1 -DCMAKE_CUDA_ARCHITECTURES=75-real;86-real;89-real;90-virtual"
           FORCE_CMAKE: "1"
-          # Parallelize the build across all runner cores (the other half of the fix).
           CMAKE_BUILD_PARALLEL_LEVEL: "4"
         run: |
           cd src
           python -m build --wheel --outdir ../dist
         shell: pwsh
 
-      - name: Bundle CUDA DLLs into the wheel
+      - name: Bundle CUDA DLLs + fix name
         run: |
-          # Windows wheels need the CUDA runtime DLLs inside them (no delvewheel on Windows).
-          # Unzip wheel, copy cudart/cublas DLLs next to the .pyd, rezip.
           $wheel = Get-ChildItem dist/*.whl | Select-Object -First 1
-          Write-Host "wheel: $($wheel.Name)  size: $([math]::Round($wheel.Length/1MB,1)) MB"
           $work = "wheelwork"; Remove-Item -Recurse -Force $work -ErrorAction Ignore
           Expand-Archive -Path $wheel.FullName -DestinationPath $work
           $libdir = "$work/llama_cpp/lib"
@@ -108,10 +143,14 @@ jobs:
           Remove-Item $wheel.FullName
           Compress-Archive -Path "$work/*" -DestinationPath "$($wheel.FullName).zip"
           Move-Item "$($wheel.FullName).zip" $wheel.FullName
-          Write-Host "repacked: $([math]::Round((Get-Item $wheel.FullName).Length/1MB,1)) MB"
+          $built = (Get-ChildItem dist/*.whl | Select-Object -First 1).Name
+          Write-Host "built: $built"
+          if ($built -ne "${{ matrix.name }}") {
+            Write-Host "::warning::name is $built, expected ${{ matrix.name }}"
+          }
         shell: pwsh
 
-      - name: Smoke-test the wheel
+      - name: Smoke-test
         run: |
           pip install (Get-ChildItem dist/*.whl | Select-Object -First 1).FullName
           python -c "import llama_cpp; print('import OK', llama_cpp.__version__)"
@@ -119,15 +158,13 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: windows-cuda-wheel
+          name: ${{ matrix.name }}
           path: dist/*.whl
 
       - name: Upload to the dataset
-        if: ${{ github.event.inputs.upload == 'true' }}
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          pip install "huggingface_hub>=0.28"
           python -c @"
           import os, glob, time
           from huggingface_hub import HfApi
