@@ -17,13 +17,11 @@ name: Factory
 # Cancel workflow button — nothing is lost, the queue is derived from the dataset.
 
 on:
-  schedule:
-    # Every 15 min. concurrency (group: factory, below) means a new tick waits for the
-    # current run instead of stacking, so this self-throttles to "as fast as a run finishes"
-    # — ~12h for the whole backlog. GitHub's scheduler is best-effort and may fire less often
-    # under load; that's fine, it just paces itself. Once the queue is empty each tick plans
-    # nothing and builds nothing (harmless). Set "enabled": false in config.json to stop.
-    - cron: "*/15 * * * *"
+  # Auto-schedule removed — the Linux collection is done, so the factory no longer
+  # fires itself every 15 min. It now runs only when you trigger it by hand from the
+  # Actions tab (Run workflow). To bring back the automatic cron later, restore:
+  #   schedule:
+  #     - cron: "*/15 * * * *"
   workflow_dispatch:
     inputs:
       batch_size:
@@ -78,6 +76,11 @@ jobs:
         env:
           BATCH: ${{ github.event.inputs.batch_size || '20' }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          # Build only Linux wheel kinds here. windows_cuda wheels are built by
+          # factory-windows.yml on Windows runners — without this filter the Linux
+          # planner sees them as missing and dispatches them to Linux, where the CMAKE_ARGS
+          # are all wrong and the build fails.
+          KINDS: cpu,cuda
         run: |
           python - <<'PY'
           import json, os
