@@ -131,20 +131,53 @@ jobs:
           python -m build --wheel --outdir ../dist
         shell: pwsh
 
-      - name: Bundle CUDA DLLs + fix name
+      # Bundle the CUDA runtime DLLs next to llama.dll. This is REQUIRED, not optional:
+      # llama-cpp-python loads llama.dll with LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR semantics, so
+      # Windows searches ONLY the DLL's own directory (llama_cpp/lib) for its dependencies — a
+      # CUDA install on PATH or CUDA_PATH is NOT consulted at load time. So cudart/cublas/
+      # cublasLt must physically sit in llama_cpp/lib, or the import dies with "Could not find
+      # llama.dll (or one of its dependencies)" — exactly the failure we saw.
+      #
+      # Two robustness fixes over the old step:
+      #   1. Hard-fail if zero CUDA DLLs are found (the old glob copied silently — a wrong
+      #      CUDA path bundled nothing and the step still "passed", shipping a broken wheel).
+      #   2. Repack with the `wheel` tool, not Compress-Archive, so RECORD is regenerated and
+      #      zip entries use forward slashes (Compress-Archive can corrupt both).
+      # The lib listings before/after make the next run self-diagnosing.
+      - name: Bundle CUDA DLLs
         run: |
-          $wheel = Get-ChildItem dist/*.whl | Select-Object -First 1
-          $work = "wheelwork"; Remove-Item -Recurse -Force $work -ErrorAction Ignore
-          Expand-Archive -Path $wheel.FullName -DestinationPath $work
-          $libdir = "$work/llama_cpp/lib"
-          $cudabin = "${{ steps.cuda.outputs.CUDA_PATH }}/bin"
-          Get-ChildItem "$cudabin/cudart64_*.dll","$cudabin/cublas64_*.dll","$cudabin/cublasLt64_*.dll" -ErrorAction Ignore |
-            ForEach-Object { Copy-Item $_.FullName $libdir -Force; Write-Host "bundled $($_.Name)" }
-          Remove-Item $wheel.FullName
-          Compress-Archive -Path "$work/*" -DestinationPath "$($wheel.FullName).zip"
-          Move-Item "$($wheel.FullName).zip" $wheel.FullName
+          $ErrorActionPreference = "Stop"
+          $wheel = (Get-ChildItem dist/*.whl | Select-Object -First 1).FullName
+          Write-Host "built wheel: $wheel"
+
+          python -m wheel unpack $wheel -d wheelwork
+          $pkgdir = (Get-ChildItem wheelwork -Directory | Select-Object -First 1).FullName
+          $libdir = Join-Path $pkgdir "llama_cpp/lib"
+
+          Write-Host "=== llama_cpp/lib BEFORE bundling ==="
+          Get-ChildItem $libdir | ForEach-Object { Write-Host "  $($_.Name)" }
+
+          # Find the CUDA runtime DLLs. Prefer the action's output path, fall back to the
+          # CUDA_PATH env var, and search recursively so the exact subdir doesn't matter.
+          $cudaRoot = "${{ steps.cuda.outputs.CUDA_PATH }}"
+          if (-not $cudaRoot -or -not (Test-Path $cudaRoot)) { $cudaRoot = $env:CUDA_PATH }
+          Write-Host "CUDA root: $cudaRoot"
+          $dlls = Get-ChildItem -Path $cudaRoot -Recurse -ErrorAction Ignore `
+            -Include cudart64_*.dll,cublas64_*.dll,cublasLt64_*.dll
+          if (-not $dlls -or @($dlls).Count -eq 0) {
+            Write-Host "::error::no CUDA runtime DLLs found under $cudaRoot — cannot bundle"
+            exit 1
+          }
+          $dlls | ForEach-Object { Copy-Item $_.FullName $libdir -Force; Write-Host "  bundled $($_.Name)" }
+
+          Write-Host "=== llama_cpp/lib AFTER bundling ==="
+          Get-ChildItem $libdir | ForEach-Object { Write-Host "  $($_.Name)" }
+
+          # Repack with the wheel tool (regenerates RECORD with correct hashes + forward slashes).
+          Remove-Item $wheel
+          python -m wheel pack $pkgdir -d dist
           $built = (Get-ChildItem dist/*.whl | Select-Object -First 1).Name
-          Write-Host "built: $built"
+          Write-Host "repacked: $built"
           if ($built -ne "${{ matrix.name }}") {
             Write-Host "::warning::name is $built, expected ${{ matrix.name }}"
           }
@@ -152,7 +185,14 @@ jobs:
 
       - name: Smoke-test
         run: |
-          pip install (Get-ChildItem dist/*.whl | Select-Object -First 1).FullName
+          $ErrorActionPreference = "Stop"
+          $w = (Get-ChildItem dist/*.whl | Select-Object -First 1).FullName
+          pip install $w
+          # Show what actually landed in the installed lib dir, right before the import that
+          # was failing — so a remaining missing-DLL shows up here instead of as a mystery.
+          $libdir = python -c "import llama_cpp, os; print(os.path.join(os.path.dirname(llama_cpp.__file__), 'lib'))"
+          Write-Host "=== installed llama_cpp/lib ==="
+          Get-ChildItem $libdir | ForEach-Object { Write-Host "  $($_.Name)" }
           python -c "import llama_cpp; print('import OK', llama_cpp.__version__)"
         shell: pwsh
 
