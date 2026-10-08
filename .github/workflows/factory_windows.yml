@@ -92,7 +92,9 @@ jobs:
           python-version: ${{ matrix.python }}
 
       - name: Install CUDA ${{ matrix.cuda }}
-        uses: Jimver/cuda-toolkit@v0.2.19
+        # v0.2.36 knows CUDA 12.6.3 / 12.8.1 / 12.9.x. The old v0.2.19 predated them, so every
+        # cu126/cu128 job died at this step with "Version not available: 12.6.3".
+        uses: Jimver/cuda-toolkit@v0.2.36
         id: cuda
         with:
           cuda: ${{ matrix.cuda }}
@@ -183,17 +185,48 @@ jobs:
           }
         shell: pwsh
 
-      - name: Smoke-test
+      # The runner has NO GPU, so we must NOT `import llama_cpp` here. This is a CUDA build:
+      # ggml-cuda.dll depends on nvcuda.dll (the NVIDIA DRIVER, not a toolkit DLL you can bundle),
+      # which exists only on a machine with a real GPU. A full import ALWAYS fails on a driverless
+      # CI runner — even for a perfectly good wheel (abetlen's own wheels fail to import here too),
+      # and because this step ran before "Upload", that false failure was silently blocking every
+      # upload. So instead of importing, verify the wheel is STRUCTURALLY complete: install it,
+      # then walk every bundled DLL's PE import table and confirm the only unresolved dependency
+      # is nvcuda.dll. Any missing CUDA *runtime* lib (cudart/cublas/cublasLt/...) fails the job.
+      - name: Smoke-test (structural — runner has no GPU to import against)
         run: |
           $ErrorActionPreference = "Stop"
           $w = (Get-ChildItem dist/*.whl | Select-Object -First 1).FullName
-          pip install $w
-          # Show what actually landed in the installed lib dir, right before the import that
-          # was failing — so a remaining missing-DLL shows up here instead of as a mystery.
-          $libdir = python -c "import llama_cpp, os; print(os.path.join(os.path.dirname(llama_cpp.__file__), 'lib'))"
+          pip install --quiet $w pefile
+          # Locate the install dir via sysconfig — WITHOUT importing llama_cpp (that would load the
+          # CUDA DLLs and fail on this GPU-less runner).
+          $libdir = python -c "import os, sysconfig; print(os.path.join(sysconfig.get_paths()['platlib'], 'llama_cpp', 'lib'))"
           Write-Host "=== installed llama_cpp/lib ==="
           Get-ChildItem $libdir | ForEach-Object { Write-Host "  $($_.Name)" }
-          python -c "import llama_cpp; print('import OK', llama_cpp.__version__)"
+          @'
+          import os, glob, re, sys
+          import pefile
+          libdir = sys.argv[1]
+          present = {os.path.basename(p).lower() for p in glob.glob(os.path.join(libdir, "*.dll"))}
+          cuda_rt = re.compile(r"^(cudart|cublas|cublaslt|nvrtc|nvjitlink|cufft|curand|cusparse|cusolver|nvblas|cudnn)", re.I)
+          missing = {}
+          for p in sorted(glob.glob(os.path.join(libdir, "*.dll"))):
+              pe = pefile.PE(p, fast_load=True)
+              pe.parse_data_directories([pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_IMPORT"]])
+              deps = sorted({e.dll.decode() for e in getattr(pe, "DIRECTORY_ENTRY_IMPORT", []) or []}, key=str.lower)
+              print("  " + os.path.basename(p) + " -> " + ", ".join(deps))
+              for d in deps:
+                  if d.lower() != "nvcuda.dll" and cuda_rt.match(d) and d.lower() not in present:
+                      missing.setdefault(os.path.basename(p), set()).add(d)
+              pe.close()
+          if missing:
+              print("FAIL: CUDA runtime dependencies missing from the wheel:")
+              for k, v in missing.items():
+                  print("   " + k + ": " + ", ".join(sorted(v)))
+              sys.exit(1)
+          print("STRUCTURAL OK: every CUDA runtime dep is bundled; only nvcuda.dll (the GPU driver) is external and resolves on the user's GPU machine.")
+          '@ | Set-Content -Path check_deps.py -Encoding ascii
+          python check_deps.py "$libdir"
         shell: pwsh
 
       - uses: actions/upload-artifact@v4
