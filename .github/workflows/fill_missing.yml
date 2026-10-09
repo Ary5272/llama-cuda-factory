@@ -1,0 +1,49 @@
+name: Fill missing (mirror upstream)
+
+# Mirrors EVERY upstream llama-cpp-python wheel — all versions (0.1.x -> 0.3.x), all three
+# OSes — into AIencoder/llama-cpp-wheels. fill_missing.py rebuilds the upstream universe each
+# run, diffs it against the dataset, and uploads whatever is missing (derived queue, same idea
+# as the factory). Re-running continues where it left off, so the cron grinds the whole catalog
+# to completion on its own. Big CUDA wheels make the later runs slow; that's expected.
+
+on:
+  schedule:
+    - cron: "15 */6 * * *"      # offset from the factory crons
+  workflow_dispatch:
+    inputs:
+      max:
+        description: "Max wheels this run (blank = as many as fit the ~5h budget)"
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fill-missing
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350        # script self-stops at a 5h budget, before this
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Deps
+        run: pip install "huggingface_hub>=0.28" requests
+
+      - name: Free up runner disk (some CUDA wheels are ~1 GB each)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
+          df -h / | tail -1
+
+      - name: Mirror missing upstream wheels
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          MIRROR_MAX: ${{ github.event.inputs.max || '100000' }}
+        run: python fill_missing.py
