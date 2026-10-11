@@ -34,6 +34,13 @@ from huggingface_hub import HfApi
 ROOT = os.path.dirname(os.path.abspath(__file__))
 PLATFORM = "manylinux_2_31_x86_64"
 
+# llama-cpp-python switched from per-Python wheels (cp310/cp311/...) to a single
+# version-agnostic py3-none wheel per platform starting at 0.3.20 — the bindings load the
+# shared library via ctypes, so there's no CPython ABI to vary. For those versions we build
+# ONE wheel per variant with a stable interpreter instead of one per Python version.
+PY3NONE_FROM = (0, 3, 20)
+BUILD_PY = "3.12"
+
 
 def load_json(name, default):
     path = os.path.join(ROOT, name)
@@ -52,15 +59,21 @@ def py_tag(version: str) -> str:
     return "cp" + version.replace(".", "")
 
 
-def wheel_name(llama_ver: str, local: str, python: str) -> str:
-    base = llama_ver.lstrip("v")
-    tag = py_tag(python)
-    return f"llama_cpp_python-{base}+{local}-{tag}-{tag}-{PLATFORM}.whl"
-
-
 def version_key(v: str):
     nums = re.findall(r"\d+", v)
     return tuple(int(n) for n in nums[:3]) if nums else (0, 0, 0)
+
+
+def is_py3none(llama_ver: str) -> bool:
+    return version_key(llama_ver) >= PY3NONE_FROM
+
+
+def wheel_name(llama_ver: str, local: str, python: str, platform: str = PLATFORM) -> str:
+    base = llama_ver.lstrip("v")
+    if is_py3none(llama_ver):
+        return f"llama_cpp_python-{base}+{local}-py3-none-{platform}.whl"
+    tag = py_tag(python)
+    return f"llama_cpp_python-{base}+{local}-{tag}-{tag}-{platform}.whl"
 
 
 def build_targets(cfg):
@@ -68,47 +81,52 @@ def build_targets(cfg):
     targets = {}
     llamas = cfg["llama_versions"]
     pythons = cfg["python_versions"]
+    win_pys = cfg.get("windows_python_versions", pythons)
+
+    def pys(llama, base_list):
+        # py3-none versions are Python-agnostic: build once with a stable interpreter.
+        # The per-variant wheel name is identical for every Python, so the dict collapses
+        # them anyway — pinning BUILD_PY just makes the build env deterministic.
+        return [BUILD_PY] if is_py3none(llama) else base_list
 
     # ---- CPU wheels: explicit variant list, NOT a product --------------
-    for variant, llama, python in itertools.product(cfg.get("cpu_variants", []), llamas, pythons):
-        name = wheel_name(llama, variant, python)
-        targets[name] = {
-            "name": name, "kind": "cpu", "variant": variant,
-            "llama": llama, "python": python,
-            # CPU builds run in the plain manylinux image, no CUDA.
-            "cuda": "", "cpu": variant,
-        }
+    for variant in cfg.get("cpu_variants", []):
+        for llama in llamas:
+            for python in pys(llama, pythons):
+                name = wheel_name(llama, variant, python)
+                targets[name] = {
+                    "name": name, "kind": "cpu", "variant": variant,
+                    "llama": llama, "python": python,
+                    # CPU builds run in the plain manylinux image, no CUDA.
+                    "cuda": "", "cpu": variant,
+                }
 
     # ---- CUDA wheels: product of (cuda_version x cpu_baseline) ----------
-    for cuda_v, baseline, llama, python in itertools.product(
-        cfg.get("cuda_versions", []), cfg.get("cuda_cpu_baselines", []), llamas, pythons
-    ):
-        local = f"{cuda_tag(cuda_v)}_{baseline}"
-        name = wheel_name(llama, local, python)
-        targets[name] = {
-            "name": name, "kind": "cuda", "variant": local,
-            "llama": llama, "python": python,
-            "cuda": cuda_v, "cpu": baseline,
-        }
+    for cuda_v in cfg.get("cuda_versions", []):
+        for baseline in cfg.get("cuda_cpu_baselines", []):
+            for llama in llamas:
+                for python in pys(llama, pythons):
+                    local = f"{cuda_tag(cuda_v)}_{baseline}"
+                    name = wheel_name(llama, local, python)
+                    targets[name] = {
+                        "name": name, "kind": "cuda", "variant": local,
+                        "llama": llama, "python": python,
+                        "cuda": cuda_v, "cpu": baseline,
+                    }
 
     # ---- Windows CUDA wheels: product of (cuda_version) only ------------
-    # Windows wheels don't split by CPU-flag variant the way Linux does (they ship one
-    # generic MSVC build), so the only axis is CUDA version. Platform is win_amd64 and the
-    # local tag is just cuXXX. Windows Python wheels skip cp38/cp314 where upstream didn't
-    # provide them, so Windows uses its own python list if given.
-    win_pys = cfg.get("windows_python_versions", pythons)
-    for cuda_v, llama, python in itertools.product(
-        cfg.get("windows_cuda_versions", []), llamas, win_pys
-    ):
-        local = cuda_tag(cuda_v)
-        base = llama.lstrip("v")
-        tag = py_tag(python)
-        name = f"llama_cpp_python-{base}+{local}-{tag}-{tag}-win_amd64.whl"
-        targets[name] = {
-            "name": name, "kind": "windows_cuda", "variant": local,
-            "llama": llama, "python": python,
-            "cuda": cuda_v, "cpu": "",
-        }
+    # Windows wheels don't split by CPU-flag variant the way Linux does (one generic MSVC
+    # build), so the only axis is CUDA version. Same py3-none switch applies for 0.3.20+.
+    for cuda_v in cfg.get("windows_cuda_versions", []):
+        for llama in llamas:
+            for python in pys(llama, win_pys):
+                local = cuda_tag(cuda_v)
+                name = wheel_name(llama, local, python, platform="win_amd64")
+                targets[name] = {
+                    "name": name, "kind": "windows_cuda", "variant": local,
+                    "llama": llama, "python": python,
+                    "cuda": cuda_v, "cpu": "",
+                }
 
     return targets
 

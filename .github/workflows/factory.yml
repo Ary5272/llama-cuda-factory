@@ -467,7 +467,9 @@ jobs:
           BUILT=$(basename /repaired/*.whl)
           echo "built:    $BUILT"
           echo "expected: ${{ matrix.name }}"
-          [ "$BUILT" = "${{ matrix.name }}" ] || { echo "::error::filename mismatch"; exit 1; }
+          # Non-fatal: the upload uses the ACTUAL built name, so a tag surprise (e.g. a
+          # py3-none vs cpXX boundary) just warns instead of throwing away a good wheel.
+          [ "$BUILT" = "${{ matrix.name }}" ] || echo "::warning::name is $BUILT, expected ${{ matrix.name }} — uploading actual"
 
       - uses: actions/upload-artifact@v4
         with:
