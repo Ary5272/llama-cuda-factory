@@ -482,7 +482,7 @@ jobs:
           . /opt/buildvenv/bin/activate
           uv pip install "huggingface_hub>=0.28"
           python - <<'PY'
-          import os, glob, time
+          import os, glob, time, re
           from huggingface_hub import HfApi
           from huggingface_hub.errors import HfHubHTTPError
           token = os.environ.get("HF_TOKEN")
@@ -490,14 +490,16 @@ jobs:
           api = HfApi(token=token)
           for path in glob.glob("/repaired/*.whl"):
               name = os.path.basename(path)
+              # Per-version subfolder: HF caps any directory at 10,000 files and the root is full.
+              ver = re.match(r"llama_cpp_python-(\d+\.\d+\.\d+)", name).group(1)
               # HF limits commits to 128/hour. On 429, wait and retry rather than failing the
               # wheel — the file already uploaded, only the commit is throttled. Up to ~15 min
               # of backoff, which clears the 300s rate window several times over.
               for attempt in range(1, 11):
                   try:
-                      api.upload_file(path_or_fileobj=path, path_in_repo=name,
+                      api.upload_file(path_or_fileobj=path, path_in_repo=f"{ver}/{name}",
                                       repo_id="AIencoder/llama-cpp-wheels", repo_type="dataset",
-                                      commit_message=f"wheel: {name}")
+                                      commit_message=f"wheel: {ver}/{name}")
                       print("uploaded", name)
                       break
                   except HfHubHTTPError as e:

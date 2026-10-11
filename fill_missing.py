@@ -31,6 +31,13 @@ BATCH_BYTES = int(os.environ.get("MIRROR_BATCH_BYTES", str(3 * 2**30)))  # or ~3
 MAX_WHEELS  = int(os.environ.get("MIRROR_MAX", "100000"))          # per-run cap (optional)
 TIME_BUDGET = int(os.environ.get("MIRROR_TIME_BUDGET", "18000"))   # 5h; job timeout is 6h
 HREF = re.compile(r'href="([^"]+?\.whl)(?:#[^"]*)?"')
+VER = re.compile(r"llama_cpp_python-(\d+\.\d+\.\d+)")
+
+
+def version_of(fname):
+    """Per-version subfolder — HF caps any directory at 10,000 files."""
+    m = VER.match(fname)
+    return m.group(1) if m else "misc"
 
 start = time.time()
 token = os.environ.get("HF_TOKEN")
@@ -71,7 +78,8 @@ def download(url, dest):
 def commit(paths):
     if not paths:
         return
-    ops = [CommitOperationAdd(path_in_repo=os.path.basename(p), path_or_fileobj=p) for p in paths]
+    ops = [CommitOperationAdd(path_in_repo=f"{version_of(os.path.basename(p))}/{os.path.basename(p)}",
+                              path_or_fileobj=p) for p in paths]
     for attempt in range(1, 11):
         try:
             api.create_commit(repo_id=REPO, repo_type="dataset", operations=ops,
@@ -92,7 +100,8 @@ def main():
     print(f"universe: {len(universe)} wheels", flush=True)
 
     print("listing dataset...", flush=True)
-    existing = {f for f in api.list_repo_files(REPO, repo_type="dataset") if f.endswith(".whl")}
+    # Compare by BASENAME so wheels already in root OR in a version subfolder both count as present.
+    existing = {f.split("/")[-1] for f in api.list_repo_files(REPO, repo_type="dataset") if f.endswith(".whl")}
     print(f"dataset already has: {len(existing)} wheels", flush=True)
 
     missing = sorted(f for f in universe if f not in existing)

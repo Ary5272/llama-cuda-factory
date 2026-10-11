@@ -239,17 +239,18 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           python -c @"
-          import os, glob, time
+          import os, glob, time, re
           from huggingface_hub import HfApi
           from huggingface_hub.errors import HfHubHTTPError
           api = HfApi(token=os.environ['HF_TOKEN'])
           for path in glob.glob('dist/*.whl'):
               name = os.path.basename(path)
+              ver = re.match(r'llama_cpp_python-(\d+\.\d+\.\d+)', name).group(1)
               for attempt in range(1, 11):
                   try:
-                      api.upload_file(path_or_fileobj=path, path_in_repo=name,
+                      api.upload_file(path_or_fileobj=path, path_in_repo=f'{ver}/{name}',
                           repo_id='AIencoder/llama-cpp-wheels', repo_type='dataset',
-                          commit_message=f'Windows CUDA wheel: {name}')
+                          commit_message=f'Windows CUDA wheel: {ver}/{name}')
                       print('uploaded', name); break
                   except HfHubHTTPError as e:
                       if '429' in str(e) and attempt < 10:
