@@ -17,11 +17,12 @@ name: Factory
 # Cancel workflow button — nothing is lost, the queue is derived from the dataset.
 
 on:
-  # Auto-schedule removed — the Linux collection is done, so the factory no longer
-  # fires itself every 15 min. It now runs only when you trigger it by hand from the
-  # Actions tab (Run workflow). To bring back the automatic cron later, restore:
-  #   schedule:
-  #     - cron: "*/15 * * * *"
+  schedule:
+    # Every 15 min. concurrency (group: factory) serializes runs, so this self-throttles to
+    # "as fast as a run finishes" and grinds the backlog (now the full 0.3.x series) on its own.
+    # Once the queue is empty each tick plans and builds nothing (harmless). "enabled": false
+    # in config.json stops it.
+    - cron: "*/15 * * * *"
   workflow_dispatch:
     inputs:
       batch_size:
