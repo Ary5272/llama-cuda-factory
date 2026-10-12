@@ -1,0 +1,54 @@
+name: Sort dataset
+
+# Migrate existing wheels into the os/arch/backend/version/ tree, on GitHub, using the repo's
+# HF_TOKEN secret — no local setup and no API key needed. Re-runnable and idempotent: it only
+# moves wheels that aren't already at their canonical path (server-side copy+delete, so multi-GB
+# CUDA wheels are never re-downloaded). Safe to run while the factory builds — moves are atomic
+# and the sorter retries on commit races; new wheels are already born-sorted by the factory.
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Actually move files (unchecked = dry run: just print the plan)"
+        type: boolean
+        default: false
+      limit:
+        description: "Max wheels to move this run (0 = all)"
+        default: "0"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sort          # its own lock — does NOT queue behind the factory chain
+
+jobs:
+  sort:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "huggingface_hub>=0.28"
+      - name: Run the sorter
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          ARGS="--moves-per-commit 250"
+          if [ "${{ github.event.inputs.limit }}" != "0" ] && [ -n "${{ github.event.inputs.limit }}" ]; then
+            ARGS="$ARGS --limit ${{ github.event.inputs.limit }}"
+          fi
+          if [ "${{ github.event.inputs.apply }}" = "true" ]; then
+            echo "APPLY: python sorter.py --apply $ARGS"
+            python sorter.py --apply $ARGS
+          else
+            echo "DRY RUN: python sorter.py $ARGS"
+            python sorter.py $ARGS
+          fi
+      - name: Verify nothing was left behind (full apply only)
+        if: ${{ github.event.inputs.apply == 'true' && github.event.inputs.limit == '0' }}
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python sorter.py --verify || echo "::warning::some wheels still off-target (likely uploaded by the factory mid-run) — just run this workflow again to finish them"

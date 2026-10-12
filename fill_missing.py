@@ -21,6 +21,7 @@ import os, re, sys, time, tempfile, shutil
 import requests
 from huggingface_hub import HfApi, CommitOperationAdd
 from huggingface_hub.errors import HfHubHTTPError
+from wheel_layout import dest_path   # born-sorted: same os/arch/backend/version layout as the factory
 
 REPO = "AIencoder/llama-cpp-wheels"
 BACKENDS = ["cpu", "metal", "cu121", "cu122", "cu123", "cu124"]
@@ -78,7 +79,7 @@ def download(url, dest):
 def commit(paths):
     if not paths:
         return
-    ops = [CommitOperationAdd(path_in_repo=f"{version_of(os.path.basename(p))}/{os.path.basename(p)}",
+    ops = [CommitOperationAdd(path_in_repo=dest_path(os.path.basename(p)),
                               path_or_fileobj=p) for p in paths]
     for attempt in range(1, 11):
         try:

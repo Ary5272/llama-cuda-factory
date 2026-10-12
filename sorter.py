@@ -42,7 +42,6 @@ USAGE
 """
 import argparse
 import os
-import re
 import sys
 import time
 from collections import Counter
@@ -53,85 +52,11 @@ try:
 except ImportError:
     sys.exit("huggingface_hub is required:  pip install 'huggingface_hub>=0.28'")
 
+# The os/arch/backend/version layout lives in wheel_layout.py — the SAME module the factory and
+# mirror upload steps use — so a migrated wheel and a freshly-built one compute the identical path.
+from wheel_layout import classify, target_path  # noqa: F401  (classify re-exported for callers)
+
 REPO_DEFAULT = "AIencoder/llama-cpp-wheels"
-
-_VERSION = re.compile(r"^llama_cpp_python-(\d+\.\d+\.\d+)")
-_TAG = re.compile(r"^llama_cpp_python-\d+\.\d+\.\d+\+([^-]+)-")
-_CUDA = re.compile(r"^cu(\d{2})(\d+)$")   # cu124 -> 12.4 ; cu1210 -> 12.10 (major = first 2 digits)
-
-# platform-tag arch tokens, most-specific first; value = normalized folder name
-_ARCH = [
-    ("x86_64", "x86_64"), ("amd64", "x86_64"), ("aarch64", "aarch64"), ("arm64", "arm64"),
-    ("universal2", "universal2"), ("i686", "i686"), ("ppc64le", "ppc64le"),
-    ("s390x", "s390x"), ("riscv64", "riscv64"), ("armv7l", "armv7l"), ("wasm32", "wasm32"),
-    ("win32", "x86"), ("x86", "x86"),
-]
-_STANDALONE = {"vulkan", "opencl", "clblast", "sycl", "rpc", "metal"}
-_CPU_FAMILIES = ("openblas", "mkl", "basic", "cpu")
-
-
-def backend_of(tag):
-    """Readable backend/variant folder name from the +local tag (plain 'cpu' when untagged)."""
-    if not tag:
-        return "cpu"                                   # upstream base build (no +tag)
-    t = tag.lower()
-    # CUDA: cu124, cu124_basic, cu126_avx2_fma_f16c all group under cudaXX.Y — the CPU baseline,
-    # if any, stays in the filename. (The bug this fixes: cu124_basic used to become "cu124-basic".)
-    m = _CUDA.match(t.split("_", 1)[0])
-    if m:
-        return f"cuda{m.group(1)}.{m.group(2)}"
-    if t in _STANDALONE:                               # vulkan / opencl / clblast / sycl / rpc / metal
-        return t
-    for fam in _CPU_FAMILIES:                          # openblas_avx2… / mkl_basic / basic_avx512… / cpu
-        if t == fam or t.startswith(fam + "_"):
-            tail = t[len(fam):].strip("_").replace("_", "-")
-            name = "cpu" if fam in ("basic", "cpu") else fam
-            return f"{name}-{tail}" if tail else name
-    return t.replace("_", "-")                         # anything unexpected, cleaned up
-
-
-def classify(fname):
-    """filename -> (os, arch, backend, version), or None if unparseable."""
-    vm = _VERSION.match(fname)
-    if not vm:
-        return None
-    version = vm.group(1)
-    low = fname.lower()
-
-    if "win_amd64" in low or "win32" in low or "-win" in low:
-        os_ = "windows"
-    elif "macosx" in low or "-macos" in low:
-        os_ = "macos"
-    elif "emscripten" in low or "wasm" in low:         # Pyodide / WebAssembly builds
-        os_ = "emscripten"
-    elif "linux" in low:                               # manylinux / musllinux / linux
-        os_ = "linux"
-    else:
-        os_ = "any"                                    # py3-none-any etc.
-
-    arch = "any"
-    for token, norm in _ARCH:
-        if token in low:
-            arch = norm
-            break
-    if os_ == "macos" and arch == "aarch64":
-        arch = "arm64"                                 # Apple Silicon: aarch64 and arm64 tags are the same arch
-
-    tm = _TAG.match(fname)
-    tag = tm.group(1) if tm else None
-    backend = backend_of(tag)
-    if tag is None and os_ == "macos":
-        backend = "metal"                              # abetlen's default macOS builds are Metal-enabled
-    return os_, arch, backend, version
-
-
-def target_path(fname):
-    c = classify(fname)
-    if c is None:
-        return None
-    os_, arch, backend, version = c
-    return f"{os_}/{arch}/{backend}/{version}/{fname}"
-
 
 def plan_moves(files):
     """Return (moves, already, unparsed). moves is a list of (src, dst); dst=None drops a stray duplicate."""
@@ -160,15 +85,21 @@ def _flush(api, repo, batch):
         else:
             ops.append(CommitOperationCopy(src_path_in_repo=src, path_in_repo=dst))
             ops.append(CommitOperationDelete(path_in_repo=src))
-    for attempt in range(1, 11):
+    # Retry on rate-limit (429) AND on commit races (409/412 "parent moved") plus transient 5xx —
+    # create_commit refetches the latest revision each attempt, so a retry converges. This makes the
+    # sort safe to run WHILE the factory is uploading (both commit to the same repo).
+    retryable = ("429", "409", "412", "500", "502", "503", "504")
+    for attempt in range(1, 13):
         try:
             api.create_commit(repo_id=repo, repo_type="dataset", operations=ops,
                               commit_message=f"sort: {len(batch)} wheels -> os/arch/backend/version")
             return
         except HfHubHTTPError as e:
-            if "429" in str(e) and attempt < 10:
-                wait = min(180, 20 * attempt)
-                print(f"    rate limited, waiting {wait}s (attempt {attempt})", flush=True)
+            msg = str(e)
+            if any(code in msg for code in retryable) and attempt < 12:
+                wait = min(180, 15 * attempt)
+                print(f"    commit busy ({msg.split(chr(10))[0][:80]}), waiting {wait}s (attempt {attempt})",
+                      flush=True)
                 time.sleep(wait)
             else:
                 raise
