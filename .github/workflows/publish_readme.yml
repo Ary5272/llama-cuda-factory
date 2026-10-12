@@ -1,0 +1,35 @@
+name: Publish dataset README
+
+# Pushes dataset_README.md to the dataset's README.md using the repo's HF_TOKEN secret.
+# Run it from the Actions tab (Run workflow) whenever the card changes — zero local setup.
+on:
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install huggingface_hub
+        run: pip install "huggingface_hub>=0.28"
+
+      - name: Upload README to the dataset
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python - <<'PY'
+          import os
+          from huggingface_hub import HfApi
+          token = os.environ.get("HF_TOKEN")
+          if not token:
+              raise SystemExit("HF_TOKEN secret not set")
+          HfApi(token=token).upload_file(
+              path_or_fileobj="dataset_README.md",
+              path_in_repo="README.md",
+              repo_id="AIencoder/llama-cpp-wheels",
+              repo_type="dataset",
+              commit_message="Update dataset card",
+          )
+          print("README published to AIencoder/llama-cpp-wheels")
+          PY
