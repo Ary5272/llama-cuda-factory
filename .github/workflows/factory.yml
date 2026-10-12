@@ -480,7 +480,34 @@ jobs:
           uv pip install --python /tmp/checkenv/bin/python \
             --python-platform x86_64-manylinux_2_31 \
             --quiet /repaired/*.whl
-          /tmp/checkenv/bin/python -c "import llama_cpp; print('import OK', llama_cpp.__version__)"
+          # CUDA wheels link against libcuda.so.1 — the NVIDIA *driver* — which is deliberately
+          # NOT bundled (auditwheel --exclude, line above) and is absent on a GPU-less runner.
+          # Point the loader at the toolkit's driver stub (found earlier as $CUDA_DRIVER_LIB) so
+          # the import resolves fully: this still surfaces any OTHER missing dependency (a
+          # stripped libcudart/libcublas, a bad symbol — the kind of thing that broke OpenCL).
+          # CPU builds leave $CUDA_DRIVER_LIB empty and import unchanged.
+          if [ -n "$CUDA_DRIVER_LIB" ]; then
+            mkdir -p /tmp/drvstub
+            ln -sf "$CUDA_DRIVER_LIB" /tmp/drvstub/libcuda.so.1
+            export LD_LIBRARY_PATH="/tmp/drvstub:$(dirname "$CUDA_DRIVER_LIB"):${LD_LIBRARY_PATH:-}"
+          fi
+          set +e
+          OUT=$(/tmp/checkenv/bin/python -c "import llama_cpp; print('import OK', llama_cpp.__version__)" 2>&1)
+          RC=$?
+          set -e
+          echo "$OUT"
+          OTHER_MISSING=$(echo "$OUT" | grep ': cannot open shared object' | grep -v 'libcuda\.so\.1' || true)
+          UNDEF=$(echo "$OUT" | grep 'undefined symbol' || true)
+          if [ $RC -eq 0 ]; then
+            :   # fully imported — wheel is self-contained apart from the system driver
+          elif echo "$OUT" | grep -q 'libcuda\.so\.1: cannot open shared object' \
+               && [ -z "$OTHER_MISSING" ] && [ -z "$UNDEF" ]; then
+            # Only the driver stub failed to load — expected on a runner with no GPU driver.
+            echo "::warning::libcuda.so.1 (NVIDIA driver) unavailable on CI — expected for a GPU build; wheel otherwise resolves"
+          else
+            echo "::error::import failed for a non-driver reason (see log above)"
+            exit 1
+          fi
 
       - name: Check the name came out right
         run: |
