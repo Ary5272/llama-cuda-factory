@@ -592,3 +592,49 @@ jobs:
             fi
             echo "retry push $i"; sleep $((RANDOM % 6 + 2))
           done
+
+  relay:
+    # Self-chaining grind. When a run makes progress and work still remains, dispatch the next
+    # run immediately — so the factory runs back-to-back instead of waiting on GitHub's cron,
+    # which it throttles to a few ticks a day. workflow_dispatch is the documented exception the
+    # default GITHUB_TOKEN *can* trigger, so no PAT is needed.
+    #
+    # The chain stops on its own when:
+    #   - the queue is empty (factory complete),
+    #   - the factory is disabled in config.json, or
+    #   - a run made NO net progress (remaining didn't drop) — so a systematic build failure
+    #     can't spin a runaway loop. The cron still fires occasionally to restart a stalled chain.
+    needs: [plan, build]
+    if: ${{ always() && needs.plan.outputs.enabled == 'true' && github.event.inputs.dry_run != 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write        # lets the built-in token re-dispatch this workflow
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Chain the next run while the queue is shrinking
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          KINDS: cpu,cuda
+          START: ${{ needs.plan.outputs.remaining }}
+        run: |
+          pip install -q "huggingface_hub>=0.28"
+          # Recompute the live remaining AFTER this run's uploads (public list needs no token).
+          GITHUB_OUTPUT="" python plan.py >/dev/null 2>&1 || true
+          CUR=$(python -c "import json;print(json.load(open('queue.json'))['remaining'])" 2>/dev/null || echo "")
+          echo "remaining at run start: ${START:-?}   |   now: ${CUR:-?}"
+          if ! echo "$CUR" | grep -qE '^[0-9]+$'; then
+            echo "could not read current remaining — not chaining (cron will resume)"; exit 0
+          fi
+          if [ "$CUR" -le 0 ]; then
+            echo "queue empty — factory complete. Chain stops."; exit 0
+          fi
+          if echo "$START" | grep -qE '^[0-9]+$' && [ "$CUR" -ge "$START" ]; then
+            echo "::warning::no net progress this run (${START} -> ${CUR}); stopping the chain to avoid a failure loop — the cron will retry later."; exit 0
+          fi
+          echo "progress made (${START:-?} -> ${CUR}); ${CUR} left — dispatching the next run."
+          gh api -X POST "repos/${{ github.repository }}/actions/workflows/factory.yml/dispatches" -f ref=main
