@@ -187,6 +187,13 @@ jobs:
               # EPEL via direct RPM — gets vulkan-loader-devel + vulkan-headers.
               dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm || true
               dnf install -y vulkan-loader-devel vulkan-headers || echo "::warning::vulkan loader/headers failed"
+              # Newer llama.cpp's Vulkan backend does find_package(SPIRV-Headers) at configure
+              # time ("CMake Error: Could not find ... SPIRV-Headers" on 0.3.20+). It's header-only,
+              # so a quick clone + cmake install drops the package config into /usr/local.
+              git clone --depth 1 https://github.com/KhronosGroup/SPIRV-Headers /tmp/spirv-headers \
+                && cmake -S /tmp/spirv-headers -B /tmp/spirv-headers/build -DCMAKE_INSTALL_PREFIX=/usr/local >/dev/null \
+                && cmake --build /tmp/spirv-headers/build --target install >/dev/null \
+                && echo "SPIRV-Headers installed" || echo "::warning::SPIRV-Headers install failed"
               # glslc isn't in any dnf repo and prebuilt downloads are unreliable, so build it
               # from shaderc source. Cached (see 'Cache glslc' step) so only the first vulkan
               # job pays the ~10 min; later jobs restore the binary.
@@ -234,6 +241,19 @@ jobs:
                 && cp -r /tmp/ocl-headers/CL /usr/include/ \
                 && echo "OpenCL 3.0 headers installed" \
                 || echo "::warning::OpenCL 3.0 headers failed"
+              # EPEL's ocl-icd libOpenCL.so is OpenCL 2.2 and is MISSING 3.0 entry points such as
+              # clCreateBufferWithProperties, which newer llama.cpp's OpenCL backend calls — so the
+              # wheel fails to import with "undefined symbol". Build the Khronos ICD loader (full
+              # 3.0 dispatch), install it over ocl-icd: the symbol then resolves at load and
+              # auditwheel bundles the 3.0 loader.
+              git clone --depth 1 https://github.com/KhronosGroup/OpenCL-ICD-Loader /tmp/ocl-loader \
+                && cmake -S /tmp/ocl-loader -B /tmp/ocl-loader/build -G "Unix Makefiles" \
+                     -DCMAKE_BUILD_TYPE=Release -DOPENCL_ICD_LOADER_HEADERS_DIR=/tmp/ocl-headers \
+                     -DCMAKE_C_COMPILER=/opt/rh/gcc-toolset-14/root/usr/bin/gcc >/dev/null \
+                && cmake --build /tmp/ocl-loader/build -j "$(nproc)" >/dev/null \
+                && cp -a /tmp/ocl-loader/build/libOpenCL.so* /usr/lib64/ && ldconfig \
+                && echo "Khronos OpenCL 3.0 ICD loader installed" \
+                || echo "::warning::OpenCL ICD loader build failed — opencl import may fail"
               ;;
             clblast*)
               dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-8.noarch.rpm || true
