@@ -86,6 +86,8 @@ jobs:
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
 
     steps:
+      - uses: actions/checkout@v4   # need the factory repo for wheel_layout.py (the upload step imports it)
+
       - name: Set up Python ${{ matrix.python }}
         uses: actions/setup-python@v5
         with:
