@@ -1,0 +1,29 @@
+name: Debug Windows path
+on:
+  workflow_dispatch:
+jobs:
+  dbg:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - shell: pwsh
+        run: |
+          Write-Host "pwsh Get-Location: $(Get-Location)"
+          Write-Host "env GITHUB_WORKSPACE: $env:GITHUB_WORKSPACE"
+          python -c @"
+          import os, sys
+          print('PY cwd:', os.getcwd())
+          print('PY GITHUB_WORKSPACE:', repr(os.environ.get('GITHUB_WORKSPACE')))
+          print('cwd has wheel_layout.py:', os.path.exists(os.path.join(os.getcwd(),'wheel_layout.py')))
+          ws = os.environ.get('GITHUB_WORKSPACE')
+          if ws:
+              print('ws exists:', os.path.isdir(ws), '| ws has wheel_layout.py:', os.path.exists(os.path.join(ws,'wheel_layout.py')))
+          print('cwd *.py:', [f for f in os.listdir('.') if f.endswith('.py')][:10])
+          sys.path[:0] = [p for p in (ws, os.getcwd()) if p]
+          print('sys.path[:3]:', sys.path[:3])
+          try:
+              import wheel_layout
+              print('IMPORT OK ->', wheel_layout.dest_path('llama_cpp_python-0.3.36+cu124-py3-none-win_amd64.whl'))
+          except Exception as e:
+              print('IMPORT FAIL:', type(e).__name__, e)
+          "@
