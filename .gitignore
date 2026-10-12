@@ -1,0 +1,7 @@
+# Python
+__pycache__/
+*.pyc
+
+# sorter.py generated output (regenerated each run)
+sort_plan.txt
+sort_unsorted.txt
