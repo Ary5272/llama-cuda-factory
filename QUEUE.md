@@ -2,10 +2,10 @@
 
 Regenerated every run. Do not edit — change `config.json`.
 
-`[#############............]` **3558 / 6788** (52.4%)
+`[#############............]` **3609 / 6788** (53.2%)
 
-- built: **3558**
-- remaining: **2879**  (1331 CPU, 1548 CUDA)
+- built: **3609**
+- remaining: **2828**  (1304 CPU, 1524 CUDA)
 - blocked: **0**
 
 ## Range
@@ -17,62 +17,6 @@ Regenerated every run. Do not edit — change `config.json`.
 
 ## Next batch (40)
 
-- `llama_cpp_python-0.3.36+cu124_avx2_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.36+cu124_avx512_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.36+cu124_basic-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.36+cu126_avx2_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.36+cu126_avx512_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.36+cu126_basic-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.36+cu128_avx2_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.36+cu128_avx512_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.36+cu128_basic-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.36+cu129_avx2_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.36+cu129_avx512_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.36+cu129_basic-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.35+cu124_avx2_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.35+cu124_avx512_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.35+cu124_basic-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.35+cu126_avx2_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.35+cu126_avx512_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.35+cu126_basic-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.35+cu128_avx2_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.35+cu128_avx512_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.35+cu128_basic-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.35+cu129_avx2_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.35+cu129_avx512_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.35+cu129_basic-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.34+basic-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.34+basic_avx-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.34+basic_avx2_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.34+basic_avx2_fma_f16c_avxvnni-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.34+basic_avx512_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.34+basic_avx512_fma_f16c_vnni_vbmi-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.34+basic_avx512_fma_f16c_vnni_vbmi_bf16_amx-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.34+basic_avx_f16c-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.34+clblast-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.34+mkl_avx-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.34+mkl_avx2_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.34+mkl_avx2_fma_f16c_avxvnni-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.34+mkl_avx512_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.34+mkl_avx512_fma_f16c_vnni_vbmi-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.34+mkl_avx512_fma_f16c_vnni_vbmi_bf16_amx-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.34+mkl_avx_f16c-py3-none-manylinux_2_31_x86_64.whl`
-
-## Still queued (2839)
-
-<details><summary>show</summary>
-
-- `llama_cpp_python-0.3.34+mkl_basic-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.34+openblas_avx-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.34+openblas_avx2_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.34+openblas_avx2_fma_f16c_avxvnni-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.34+openblas_avx512_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.34+openblas_avx512_fma_f16c_vnni_vbmi-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.34+openblas_avx512_fma_f16c_vnni_vbmi_bf16_amx-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.34+openblas_avx_f16c-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.34+openblas_basic-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.34+opencl-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.34+rpc-py3-none-manylinux_2_31_x86_64.whl`
 - `llama_cpp_python-0.3.34+sycl-py3-none-manylinux_2_31_x86_64.whl`
 - `llama_cpp_python-0.3.34+vulkan-py3-none-manylinux_2_31_x86_64.whl`
 - `llama_cpp_python-0.3.34+cu124_avx2_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
@@ -113,6 +57,11 @@ Regenerated every run. Do not edit — change `config.json`.
 - `llama_cpp_python-0.3.33+openblas_avx_f16c-py3-none-manylinux_2_31_x86_64.whl`
 - `llama_cpp_python-0.3.33+openblas_basic-py3-none-manylinux_2_31_x86_64.whl`
 - `llama_cpp_python-0.3.33+opencl-py3-none-manylinux_2_31_x86_64.whl`
+
+## Still queued (2788)
+
+<details><summary>show</summary>
+
 - `llama_cpp_python-0.3.33+rpc-py3-none-manylinux_2_31_x86_64.whl`
 - `llama_cpp_python-0.3.33+sycl-py3-none-manylinux_2_31_x86_64.whl`
 - `llama_cpp_python-0.3.33+vulkan-py3-none-manylinux_2_31_x86_64.whl`
@@ -462,6 +411,57 @@ Regenerated every run. Do not edit — change `config.json`.
 - `llama_cpp_python-0.3.24+basic_avx2_fma_f16c_avxvnni-py3-none-manylinux_2_31_x86_64.whl`
 - `llama_cpp_python-0.3.24+basic_avx512_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
 - `llama_cpp_python-0.3.24+basic_avx512_fma_f16c_vnni_vbmi-py3-none-manylinux_2_31_x86_64.whl`
-- _...and 2439 more_
+- `llama_cpp_python-0.3.24+basic_avx512_fma_f16c_vnni_vbmi_bf16_amx-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.24+basic_avx_f16c-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.24+clblast-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.24+mkl_avx-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.24+mkl_avx2_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.24+mkl_avx2_fma_f16c_avxvnni-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.24+mkl_avx512_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.24+mkl_avx512_fma_f16c_vnni_vbmi-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.24+mkl_avx512_fma_f16c_vnni_vbmi_bf16_amx-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.24+mkl_avx_f16c-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.24+mkl_basic-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.24+openblas_avx-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.24+openblas_avx2_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.24+openblas_avx2_fma_f16c_avxvnni-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.24+openblas_avx512_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.24+openblas_avx512_fma_f16c_vnni_vbmi-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.24+openblas_avx512_fma_f16c_vnni_vbmi_bf16_amx-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.24+openblas_avx_f16c-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.24+openblas_basic-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.24+opencl-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.24+rpc-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.24+sycl-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.24+vulkan-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.24+cu124_avx2_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.24+cu124_avx512_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.24+cu124_basic-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.24+cu126_avx2_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.24+cu126_avx512_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.24+cu126_basic-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.24+cu128_avx2_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.24+cu128_avx512_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.24+cu128_basic-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.24+cu129_avx2_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.24+cu129_avx512_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.24+cu129_basic-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.23+basic-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.23+basic_avx-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.23+basic_avx2_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.23+basic_avx2_fma_f16c_avxvnni-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.23+basic_avx512_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.23+basic_avx512_fma_f16c_vnni_vbmi-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.23+basic_avx512_fma_f16c_vnni_vbmi_bf16_amx-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.23+basic_avx_f16c-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.23+clblast-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.23+mkl_avx-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.23+mkl_avx2_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.23+mkl_avx2_fma_f16c_avxvnni-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.23+mkl_avx512_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.23+mkl_avx512_fma_f16c_vnni_vbmi-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.23+mkl_avx512_fma_f16c_vnni_vbmi_bf16_amx-py3-none-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.23+mkl_avx_f16c-py3-none-manylinux_2_31_x86_64.whl`
+- _...and 2388 more_
 
 </details>
