@@ -1,8 +1,8 @@
 {
   "total": 6788,
-  "built": 3555,
-  "remaining": 2882,
-  "remaining_cpu": 1334,
+  "built": 3558,
+  "remaining": 2879,
+  "remaining_cpu": 1331,
   "remaining_cuda": 1548,
   "blocked": [],
   "next_batch": [
@@ -18,19 +18,16 @@
     "llama_cpp_python-0.3.36+cu129_avx2_fma_f16c-py3-none-manylinux_2_31_x86_64.whl",
     "llama_cpp_python-0.3.36+cu129_avx512_fma_f16c-py3-none-manylinux_2_31_x86_64.whl",
     "llama_cpp_python-0.3.36+cu129_basic-py3-none-manylinux_2_31_x86_64.whl",
-    "llama_cpp_python-0.3.35+rpc-py3-none-manylinux_2_31_x86_64.whl",
-    "llama_cpp_python-0.3.35+sycl-py3-none-manylinux_2_31_x86_64.whl",
-    "llama_cpp_python-0.3.35+vulkan-py3-none-manylinux_2_31_x86_64.whl",
     "llama_cpp_python-0.3.35+cu124_avx2_fma_f16c-py3-none-manylinux_2_31_x86_64.whl",
     "llama_cpp_python-0.3.35+cu124_avx512_fma_f16c-py3-none-manylinux_2_31_x86_64.whl",
     "llama_cpp_python-0.3.35+cu124_basic-py3-none-manylinux_2_31_x86_64.whl",
     "llama_cpp_python-0.3.35+cu126_avx2_fma_f16c-py3-none-manylinux_2_31_x86_64.whl",
-    "llama_cpp_python-0.3.35+cu126_avx512_fma_f16c-py3-none-manylinux_2_31_x86_64.whl"
-  ],
-  "queued": [
+    "llama_cpp_python-0.3.35+cu126_avx512_fma_f16c-py3-none-manylinux_2_31_x86_64.whl",
     "llama_cpp_python-0.3.35+cu126_basic-py3-none-manylinux_2_31_x86_64.whl",
     "llama_cpp_python-0.3.35+cu128_avx2_fma_f16c-py3-none-manylinux_2_31_x86_64.whl",
-    "llama_cpp_python-0.3.35+cu128_avx512_fma_f16c-py3-none-manylinux_2_31_x86_64.whl",
+    "llama_cpp_python-0.3.35+cu128_avx512_fma_f16c-py3-none-manylinux_2_31_x86_64.whl"
+  ],
+  "queued": [
     "llama_cpp_python-0.3.35+cu128_basic-py3-none-manylinux_2_31_x86_64.whl",
     "llama_cpp_python-0.3.35+cu129_avx2_fma_f16c-py3-none-manylinux_2_31_x86_64.whl",
     "llama_cpp_python-0.3.35+cu129_avx512_fma_f16c-py3-none-manylinux_2_31_x86_64.whl",
