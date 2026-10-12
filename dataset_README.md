@@ -199,10 +199,9 @@ so each leaf folder holds only a handful of wheels and never approaches HuggingF
 limit. CPU wheels split by instruction tier (their primary axis); CUDA wheels group by toolkit version
 (their primary axis) with the CPU baseline carried in the filename.
 
-> **Migration in progress.** The reorganisation into this tree is still running. Many wheels (especially
-> upstream-mirrored and `≤0.3.19` builds) currently sit at the repository **root**, and the newest builds
-> under a `version/` folder. Everything is valid and installable wherever it sits — the `huggingface_hub`
-> snippet above and the **Files** tab search find a wheel regardless of its folder.
+> **Fully organised.** Every wheel lives under `os/arch/backend/version/`, and new builds are written there
+> automatically as they're produced. If you ever can't spot one by browsing, the `huggingface_hub` snippet
+> above and the **Files** tab search locate it by name regardless of folder.
 
 ### Programmatic listing
 
