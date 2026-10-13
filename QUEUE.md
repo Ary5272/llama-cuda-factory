@@ -2,10 +2,10 @@
 
 Regenerated every run. Do not edit — change `config.json`.
 
-`[###############..........]` **4129 / 6788** (60.8%)
+`[###############..........]` **4169 / 6788** (61.4%)
 
-- built: **4129**
-- remaining: **2308**  (940 CPU, 1368 CUDA)
+- built: **4169**
+- remaining: **2268**  (912 CPU, 1356 CUDA)
 - blocked: **0**
 
 ## Range
@@ -16,51 +16,6 @@ Regenerated every run. Do not edit — change `config.json`.
 - CUDA: 4 toolkit(s) x 3 baseline(s) = 2235 wheels
 
 ## Next batch (40)
-
-- `llama_cpp_python-0.3.21+mkl_avx512_fma_f16c_vnni_vbmi_bf16_amx-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.21+mkl_avx_f16c-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.21+mkl_basic-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.21+openblas_avx-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.21+openblas_avx2_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.21+openblas_avx2_fma_f16c_avxvnni-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.21+openblas_avx512_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.21+openblas_avx512_fma_f16c_vnni_vbmi-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.21+openblas_avx512_fma_f16c_vnni_vbmi_bf16_amx-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.21+openblas_avx_f16c-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.21+openblas_basic-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.21+opencl-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.21+rpc-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.21+sycl-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.21+vulkan-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.21+cu124_avx2_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.21+cu124_avx512_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.21+cu124_basic-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.21+cu126_avx2_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.21+cu126_avx512_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.21+cu126_basic-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.21+cu128_avx2_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.21+cu128_avx512_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.21+cu128_basic-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.21+cu129_avx2_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.21+cu129_avx512_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.21+cu129_basic-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.20+basic-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.20+basic_avx-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.20+basic_avx2_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.20+basic_avx2_fma_f16c_avxvnni-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.20+basic_avx512_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.20+basic_avx512_fma_f16c_vnni_vbmi-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.20+basic_avx512_fma_f16c_vnni_vbmi_bf16_amx-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.20+basic_avx_f16c-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.20+clblast-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.20+mkl_avx-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.20+mkl_avx2_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.20+mkl_avx2_fma_f16c_avxvnni-py3-none-manylinux_2_31_x86_64.whl`
-- `llama_cpp_python-0.3.20+mkl_avx512_fma_f16c-py3-none-manylinux_2_31_x86_64.whl`
-
-## Still queued (2268)
-
-<details><summary>show</summary>
 
 - `llama_cpp_python-0.3.20+mkl_avx512_fma_f16c_vnni_vbmi-py3-none-manylinux_2_31_x86_64.whl`
 - `llama_cpp_python-0.3.20+mkl_avx512_fma_f16c_vnni_vbmi_bf16_amx-py3-none-manylinux_2_31_x86_64.whl`
@@ -102,6 +57,11 @@ Regenerated every run. Do not edit — change `config.json`.
 - `llama_cpp_python-0.3.15+mkl_avx2_fma_f16c-cp312-cp312-manylinux_2_31_x86_64.whl`
 - `llama_cpp_python-0.3.15+mkl_avx2_fma_f16c-cp313-cp313-manylinux_2_31_x86_64.whl`
 - `llama_cpp_python-0.3.15+mkl_avx2_fma_f16c-cp314-cp314-manylinux_2_31_x86_64.whl`
+
+## Still queued (2228)
+
+<details><summary>show</summary>
+
 - `llama_cpp_python-0.3.15+mkl_avx2_fma_f16c-cp38-cp38-manylinux_2_31_x86_64.whl`
 - `llama_cpp_python-0.3.15+mkl_avx2_fma_f16c-cp39-cp39-manylinux_2_31_x86_64.whl`
 - `llama_cpp_python-0.3.15+mkl_avx2_fma_f16c_avxvnni-cp310-cp310-manylinux_2_31_x86_64.whl`
@@ -462,6 +422,46 @@ Regenerated every run. Do not edit — change `config.json`.
 - `llama_cpp_python-0.3.13+cu126_avx512_fma_f16c-cp38-cp38-manylinux_2_31_x86_64.whl`
 - `llama_cpp_python-0.3.13+cu126_avx512_fma_f16c-cp39-cp39-manylinux_2_31_x86_64.whl`
 - `llama_cpp_python-0.3.13+cu126_basic-cp310-cp310-manylinux_2_31_x86_64.whl`
-- _...and 1868 more_
+- `llama_cpp_python-0.3.13+cu126_basic-cp311-cp311-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.13+cu126_basic-cp312-cp312-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.13+cu126_basic-cp313-cp313-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.13+cu126_basic-cp314-cp314-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.13+cu126_basic-cp38-cp38-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.13+cu126_basic-cp39-cp39-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.13+cu128_avx2_fma_f16c-cp310-cp310-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.13+cu128_avx2_fma_f16c-cp311-cp311-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.13+cu128_avx2_fma_f16c-cp312-cp312-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.13+cu128_avx2_fma_f16c-cp313-cp313-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.13+cu128_avx2_fma_f16c-cp314-cp314-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.13+cu128_avx2_fma_f16c-cp38-cp38-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.13+cu128_avx2_fma_f16c-cp39-cp39-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.13+cu128_avx512_fma_f16c-cp310-cp310-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.13+cu128_avx512_fma_f16c-cp311-cp311-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.13+cu128_avx512_fma_f16c-cp312-cp312-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.13+cu128_avx512_fma_f16c-cp313-cp313-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.13+cu128_avx512_fma_f16c-cp314-cp314-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.13+cu128_avx512_fma_f16c-cp38-cp38-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.13+cu128_avx512_fma_f16c-cp39-cp39-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.13+cu128_basic-cp310-cp310-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.13+cu128_basic-cp311-cp311-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.13+cu128_basic-cp312-cp312-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.13+cu128_basic-cp313-cp313-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.13+cu128_basic-cp314-cp314-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.13+cu128_basic-cp38-cp38-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.13+cu128_basic-cp39-cp39-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.13+cu129_avx2_fma_f16c-cp310-cp310-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.13+cu129_avx2_fma_f16c-cp311-cp311-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.13+cu129_avx2_fma_f16c-cp312-cp312-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.13+cu129_avx2_fma_f16c-cp313-cp313-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.13+cu129_avx2_fma_f16c-cp314-cp314-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.13+cu129_avx2_fma_f16c-cp38-cp38-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.13+cu129_avx2_fma_f16c-cp39-cp39-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.13+cu129_avx512_fma_f16c-cp310-cp310-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.13+cu129_avx512_fma_f16c-cp311-cp311-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.13+cu129_avx512_fma_f16c-cp312-cp312-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.13+cu129_avx512_fma_f16c-cp313-cp313-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.13+cu129_avx512_fma_f16c-cp314-cp314-manylinux_2_31_x86_64.whl`
+- `llama_cpp_python-0.3.13+cu129_avx512_fma_f16c-cp38-cp38-manylinux_2_31_x86_64.whl`
+- _...and 1828 more_
 
 </details>
