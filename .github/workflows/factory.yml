@@ -403,7 +403,11 @@ jobs:
 
           echo "variant: $V"
           echo "CMAKE_ARGS=$CMAKE_ARGS"
-          cd /src && python -m build --wheel --outdir /out 2>&1 | tee /tmp/build.log
+          # Persist the CMake build tree (--config-setting build-dir): some BLAS/accelerator
+          # variants build a backend lib (e.g. libggml-blas.so) that the wheel install step
+          # doesn't ship, and we need to recover it from here for the repair step.
+          cd /src && python -m build --wheel --outdir /out \
+            --config-setting=build-dir=/tmp/skbuild 2>&1 | tee /tmp/build.log
 
       - name: Confirm CPU flags applied (no -march=native leak)
         run: |
@@ -424,6 +428,15 @@ jobs:
             echo "::error::llama.cpp libs not found in wheel"; find /tmp/unpacked -name '*.so'; exit 1
           fi
           echo "wheel lib dir: $LIBDIR"
+
+          # Inject any ggml backend lib the wheel references but didn't ship (e.g. libggml-blas.so
+          # for mkl/openblas). Pull it from the persisted CMake build tree into the wheel's lib dir
+          # so auditwheel can locate it AND bundle its external deps (libmkl/libiomp5). Without this,
+          # BLAS builds die with: Cannot repair wheel, required library "libggml-blas.so" not located.
+          for so in $(find /tmp/skbuild -name 'libggml-*.so*' 2>/dev/null); do
+            base=$(basename "$so")
+            if [ ! -e "$LIBDIR/$base" ]; then cp -av "$so" "$LIBDIR/" && echo "injected $base"; fi
+          done
 
           # MKL note: unlike CUDA (excluded, because users install the CUDA toolkit), MKL is
           # NOT a standard user install — so it must be BUNDLED or the wheel can't import.

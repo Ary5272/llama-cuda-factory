@@ -127,7 +127,10 @@ jobs:
       - name: Build wheel
         env:
           # Trimmed arch list + parallelism — all-major caused a 19h build.
-          CMAKE_ARGS: "-DGGML_CUDA=on -DGGML_CUDA_FORCE_CUBLAS=1 -DCMAKE_CUDA_ARCHITECTURES=75-real;86-real;89-real;90-virtual"
+          # /FIchrono force-includes <chrono> into every C++ unit: old llama.cpp (common/log.cpp)
+          # uses std::chrono::system_clock without including it, which the current MSVC rejects
+          # (error C3083 'system_clock'). Harmless/redundant for newer versions that include it.
+          CMAKE_ARGS: "-DGGML_CUDA=on -DGGML_CUDA_FORCE_CUBLAS=1 -DCMAKE_CUDA_ARCHITECTURES=75-real;86-real;89-real;90-virtual -DCMAKE_CXX_FLAGS=/FIchrono"
           FORCE_CMAKE: "1"
           CMAKE_BUILD_PARALLEL_LEVEL: "4"
         run: |
