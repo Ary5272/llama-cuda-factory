@@ -108,6 +108,15 @@ jobs:
           git clone --depth 1 --recursive --shallow-submodules `
             --branch ${{ matrix.llama }} `
             https://github.com/abetlen/llama-cpp-python.git src
+          # Old llama.cpp common/log.cpp uses std::chrono::system_clock without including <chrono>,
+          # which the current MSVC rejects (error C3083). Inject the include into that ONE C++ file.
+          # (A global /FIchrono also hits the .c files and breaks them with STL1003.) No-op when the
+          # version already includes it.
+          $log = "src/vendor/llama.cpp/common/log.cpp"
+          if ((Test-Path $log) -and -not (Select-String -Path $log -Pattern '#include <chrono>' -Quiet)) {
+            "#include <chrono>`r`n" + (Get-Content -Raw $log) | Set-Content -NoNewline $log
+            Write-Host "patched $log with #include <chrono>"
+          }
         shell: pwsh
 
       - name: Build deps
@@ -127,10 +136,7 @@ jobs:
       - name: Build wheel
         env:
           # Trimmed arch list + parallelism — all-major caused a 19h build.
-          # /FIchrono force-includes <chrono> into every C++ unit: old llama.cpp (common/log.cpp)
-          # uses std::chrono::system_clock without including it, which the current MSVC rejects
-          # (error C3083 'system_clock'). Harmless/redundant for newer versions that include it.
-          CMAKE_ARGS: "-DGGML_CUDA=on -DGGML_CUDA_FORCE_CUBLAS=1 -DCMAKE_CUDA_ARCHITECTURES=75-real;86-real;89-real;90-virtual -DCMAKE_CXX_FLAGS=/FIchrono"
+          CMAKE_ARGS: "-DGGML_CUDA=on -DGGML_CUDA_FORCE_CUBLAS=1 -DCMAKE_CUDA_ARCHITECTURES=75-real;86-real;89-real;90-virtual"
           FORCE_CMAKE: "1"
           CMAKE_BUILD_PARALLEL_LEVEL: "4"
         run: |
