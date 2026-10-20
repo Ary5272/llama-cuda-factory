@@ -108,14 +108,17 @@ jobs:
           git clone --depth 1 --recursive --shallow-submodules `
             --branch ${{ matrix.llama }} `
             https://github.com/abetlen/llama-cpp-python.git src
-          # Old llama.cpp common/log.cpp uses std::chrono::system_clock without including <chrono>,
-          # which the current MSVC rejects (error C3083). Inject the include into that ONE C++ file.
-          # (A global /FIchrono also hits the .c files and breaks them with STL1003.) No-op when the
-          # version already includes it.
-          $log = "src/vendor/llama.cpp/common/log.cpp"
-          if ((Test-Path $log) -and -not (Select-String -Path $log -Pattern '#include <chrono>' -Quiet)) {
-            "#include <chrono>`r`n" + (Get-Content -Raw $log) | Set-Content -NoNewline $log
-            Write-Host "patched $log with #include <chrono>"
+          # Old llama.cpp C++ files use std::chrono::system_clock without including <chrono>, which
+          # the current MSVC rejects (error C3083/C2039). Inject the include into the specific files
+          # that need it (a global /FIchrono also hits the .c files and breaks them with STL1003).
+          # log.cpp affects ~0.3.3+; common.cpp also needs it on the oldest (0.3.1/0.3.2). No-op when
+          # the version already includes it.
+          foreach ($rel in @("common/log.cpp", "common/common.cpp")) {
+            $f = "src/vendor/llama.cpp/$rel"
+            if ((Test-Path $f) -and -not (Select-String -Path $f -Pattern '#include <chrono>' -Quiet)) {
+              "#include <chrono>`r`n" + (Get-Content -Raw $f) | Set-Content -NoNewline $f
+              Write-Host "patched $f with #include <chrono>"
+            }
           }
         shell: pwsh
 
